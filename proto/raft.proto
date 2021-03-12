@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+option go_package = "github.com/mkuklik/raft;raft";
+
+
+service Raft {
+
+  rpc RequestVote (RequestVoteRequest) returns (RequestVoteReply) {}
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesReply) {}
+ 
+}
+
+message RequestVoteRequest {
+  repeated string params = 1;
+}
+
+message RequestVoteReply {}
+
+message LogEntry {
+
+}
+
+
+message AppendEntriesRequest {
+
+  uint32 term = 1; // leader’s term
+  uint32 leaderId = 2;   // so follower can redirect clients
+  uint32 prevLogIndex = 3; // index of log entry immediately preceding new ones
+  uint32 prevLogTerm  = 4; // term of prevLogIndex entry
+  repeated LogEntry entries = 5;// log entries to store (empty for heartbeat; may send more than one for efficiency) leader’s commitIndex
+  uint32 leaderCommit = 6; // currentTerm, for leader to update itself true if follower contained entry matching prevLogIndex and prevLogTerm
+
+}
+message AppendEntriesReply {
+}
+
+
+message StringReply {
+  string s = 1;
+}
