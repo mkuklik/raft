@@ -21,31 +21,31 @@ type VoteRequest struct {
 // 2. If votedFor is null or candidateId, and candidate’s log is at
 // least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 type VoteReply struct {
-	term        uint32 // currentTerm, for candidate to update itself
-	voteGranted uint32 // true means candidate received vote
+	Term        uint32 // currentTerm, for candidate to update itself
+	VoteGranted bool   // true means candidate received vote
 }
 
 // LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 type LogEntry struct {
-	term  uint32 // leader's term
-	index uint32 // log index
+	Term  uint32 // leader's term
+	Index uint32 // log index
 	// plus:
 	// command to the state machine
-	payload interface{}
+	Payload interface{}
 }
 
 type AppendEntriesRequest struct {
-	term         uint32     // leader’s term
-	leaderId     uint32     // so follower can redirect clients
-	prevLogIndex uint32     // index of log entry immediately preceding new ones
-	prevLogTerm  uint32     // term of prevLogIndex entry
-	leaderCommit uint32     // currentTerm, for leader to update itself true if follower contained entry matching prevLogIndex and prevLogTerm
+	Term         uint32     // leader’s term
+	LeaderId     uint32     // so follower can redirect clients
+	PrevLogIndex uint32     // index of log entry immediately preceding new ones
+	PrevLogTerm  uint32     // term of prevLogIndex entry
+	LeaderCommit uint32     // currentTerm, for leader to update itself true if follower contained entry matching prevLogIndex and prevLogTerm
 	Entries      []LogEntry // log entries to store (empty for heartbeat; may send more than one for efficiency) leader’s commitIndex
 }
 
 type AppendEntriesReply struct {
-	term    uint32 // currentTerm, for leader to update itself
-	success bool   // true if follower contained entry matching prevLogIndex and prevLogTerm
+	Term    uint32 // currentTerm, for leader to update itself
+	Success bool   // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 func (r AppendEntriesRequest) Encode() ([]byte, error) {
