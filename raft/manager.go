@@ -118,14 +118,17 @@ func connectToLeader(address string) (net.Conn, error) {
 	return c, nil
 }
 
-func (m *Manager) run(address string) {
+// Run Raft
+func (m *Manager) Run(address string) {
 
-	leaderConn, err := connectToLeader(address)
-	if err != nil {
-		log.Fatalf("failed to find a leader")
+	if !m.config.Bootstrap {
+		leaderConn, err := connectToLeader(address)
+		if err != nil {
+			log.Fatalf("failed to find a leader")
+		}
+		m.RegisterConn("", leaderConn)
+		go m.handleConnection(leaderConn)
 	}
-	m.RegisterConn("", leaderConn)
-	go m.handleConnection(leaderConn)
 
 	port := 1234
 	// add := address

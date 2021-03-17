@@ -16,9 +16,6 @@ type StateMachine interface {
 	Current() interface{}
 }
 
-type LeaderInterface interface{}
-type CandidateInterface interface{}
-
 type LogIndex uint64
 
 func logIndex(term, index uint32) LogIndex {

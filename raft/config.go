@@ -3,6 +3,8 @@ package raft
 import "time"
 
 type Config struct {
+	// Bootstrap cluster
+	Bootstrap bool
 
 	// ElectionTimeout
 	//  If a follower receives no communication over a period of time called the election
@@ -16,5 +18,9 @@ type Config struct {
 }
 
 func NewConfig() Config {
-	return Config{ElectionTimeout: 50 * time.Millisecond, MTBF: 24 * 30 * 3 * time.Hour}
+	return Config{
+		Bootstrap:       false,
+		ElectionTimeout: 50 * time.Millisecond,
+		MTBF:            24 * 30 * 3 * time.Hour,
+	}
 }
