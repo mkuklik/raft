@@ -61,6 +61,7 @@ func (state *State) FollowerHandle(msg interface{}) interface{} {
 			return VoteReply{state.CurrentTerm, true}
 		}
 		return VoteReply{state.CurrentTerm, false}
+
 	default:
 		return nil
 	}

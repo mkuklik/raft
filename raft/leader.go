@@ -12,7 +12,7 @@ no communication over a period of time called the election timeout, then it
 assumes there is no viable leader and begins an election to choose a new leader.
 */
 
-func (state *State) LeaderHandle(client uint32, msg interface{}) interface{} {
+func (state *State) LeaderHandle(msg interface{}) interface{} {
 
 	switch m := msg.(type) {
 	case AppendEntriesReply:

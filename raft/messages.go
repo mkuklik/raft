@@ -8,9 +8,31 @@ import (
 	"io"
 )
 
+func init() {
+	gob.Register(RegistrationRequest{})
+	gob.Register(RegistrationReply{})
+	gob.Register(VoteRequest{})
+	gob.Register(VoteReply{})
+	gob.Register(AppendEntriesRequest{})
+	gob.Register(AppendEntriesReply{})
+	gob.Register(LogEntry{})
+}
+
 type Message struct {
 	Message interface{}
 }
+
+// RegistrationRequest is sent by a new node trying to join the cluster
+type RegistrationRequest struct {
+	Name string // unique name
+}
+
+// RegistrationReply confirms registration or redirects to  new joiner to a leader
+type RegistrationReply struct {
+	Success bool   // true if leader registered this follower
+	Address string // address to a leader
+}
+
 type VoteRequest struct {
 	// Invoked by candidates to gather votes (§5.2).
 	Term         uint32 // candidate’s term
@@ -49,11 +71,6 @@ type LogEntry struct {
 	// plus:
 	// command to the state machine
 	Payload interface{} //Payloader
-}
-
-// RedirectReply redirect new joiner to a leader
-type RedirectReply struct {
-	Address string
 }
 
 type AppendEntriesRequest struct {

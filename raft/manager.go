@@ -1,22 +1,35 @@
 package raft
 
 import (
-	"bufio"
+	"encoding/gob"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
-	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Manager struct {
 	config *Config
-	state  State
-	sm     StateMachine
+
+	nodeStatus NodeStatus
+	state      State
+	sm         StateMachine
+
+	connections map[string]net.Conn
+	inbound     chan Message
 }
 
 func NewManager(config *Config, sm StateMachine) Manager {
-	return Manager{config, State{}, sm}
+	return Manager{
+		config,
+		Follower,
+		State{},
+		sm,
+		make(map[string]net.Conn),
+		make(chan Message)}
 }
 
 func (m *Manager) Loop(chan int) {
@@ -27,7 +40,16 @@ func (m *Manager) Loop(chan int) {
 			if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
 				m.SwitchToCandidate()
 			}
+		case msg := <-m.inbound:
 
+			switch m.nodeStatus {
+			case Follower:
+				m.state.FollowerHandle(msg)
+			case Leader:
+				m.state.LeaderHandle(msg)
+			case Candidate:
+				m.state.CandidateHandle(msg)
+			}
 			// case
 			// TODO
 		}
@@ -35,36 +57,80 @@ func (m *Manager) Loop(chan int) {
 }
 
 func (m *Manager) SwitchToCandidate() {
-	return
+	m.nodeStatus = Candidate
+}
+
+func (m *Manager) broadcast(msg Message) error {
+	// for name, c := range m.clients {
+	// 	c.conn
+	// }
+	return nil
 }
 
 var count = 0
 
-func handleConnection(c net.Conn) {
-	fmt.Print(".")
+func (m *Manager) handleConnection(c net.Conn) {
+	dec := gob.NewDecoder(c)
 	for {
-		netData, err := bufio.NewReader(c).ReadString('\n')
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		temp := strings.TrimSpace(string(netData))
-		if temp == "STOP" {
+		msg := Message{}
+		err := dec.Decode(&msg)
+		if err == io.EOF {
+			// TOOD close connection or try to reconnect
+			log.Errorf("Decode failed, %s", err.Error())
 			break
 		}
-		fmt.Println(temp)
-		counter := strconv.Itoa(count) + "\n"
-		c.Write([]byte(string(counter)))
+		m.inbound <- msg
 	}
+	// TODO regegister connection
+	// m.deregister(c)
 	c.Close()
 }
 
+func connectToLeader(address string) (net.Conn, error) {
+	var err error
+	var c net.Conn
+	// Find leader
+	for {
+		log.Infof("Dialing %s", address)
+		c, err = net.Dial("tcp", address)
+		if err != nil {
+			log.Errorf("Dialing failed")
+			fmt.Println(err)
+			return nil, err
+		}
+		// send registration request
+		enc := gob.NewEncoder(c)
+		enc.Encode(RegistrationRequest{"Jon"})
+
+		dec := gob.NewDecoder(c)
+		replyMsg := Message{}
+		err = dec.Decode(&replyMsg)
+		if err != nil {
+			log.Errorf("No response failed")
+		}
+		reply := replyMsg.Message.(RegistrationReply)
+		if reply.Success {
+			// TODO
+		} else if reply.Address != "" {
+			address = reply.Address
+		}
+	}
+	return c, nil
+}
+
 func (m *Manager) run(address string) {
+
+	leaderConn, err := connectToLeader(address)
+	if err != nil {
+		log.Fatalf("failed to find a leader")
+	}
+	m.RegisterConn("", leaderConn)
+	go m.handleConnection(leaderConn)
+
 	port := 1234
 	// add := address
 	add := ":" + strconv.Itoa(port)
-	l, err := net.Listen("tcp4", add)
+	l, err := net.Listen("tcp", add)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -74,10 +140,24 @@ func (m *Manager) run(address string) {
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			fmt.Println(err)
-			return
+			log.Errorf("conn Accept failed, %s", err.Error())
 		}
-		go handleConnection(c)
-		count++
+		go m.handleConnection(c)
+	}
+}
+
+type client struct {
+	conn net.Conn
+	name string
+}
+
+func (c *client) send(msg Message) error {
+	enc := gob.NewEncoder(c.conn)
+	return enc.Encode(msg)
+}
+
+func (m *Manager) RegisterConn(name string, c net.Conn) {
+	if _, exists := m.connections[name]; !exists {
+		m.connections[name] = c
 	}
 }
