@@ -2,11 +2,15 @@ package raft
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/gob"
 	"errors"
 	"io"
 )
 
+type Message struct {
+	Message interface{}
+}
 type VoteRequest struct {
 	// Invoked by candidates to gather votes (§5.2).
 	Term         uint32 // candidate’s term
@@ -14,6 +18,10 @@ type VoteRequest struct {
 	LastLogIndex uint32 // index of candidate’s last log entry (§5.4)
 	LastLogTerm  uint32 // term of candidate’s last log entry (§5.4)
 }
+
+// func (x *VoteRequest) Abc() string {
+// 	return "fdf"
+// }
 
 // VoteReply results of VoteRequest
 // Receiver implementation:
@@ -25,13 +33,27 @@ type VoteReply struct {
 	VoteGranted bool   // true means candidate received vote
 }
 
+// func (x *VoteReply) Abc() string {
+// 	return "fdf"
+// }
+
+type Payloader interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
+}
+
 // LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 type LogEntry struct {
 	Term  uint32 // leader's term
 	Index uint32 // log index
 	// plus:
 	// command to the state machine
-	Payload interface{}
+	Payload interface{} //Payloader
+}
+
+// RedirectReply redirect new joiner to a leader
+type RedirectReply struct {
+	Address string
 }
 
 type AppendEntriesRequest struct {
