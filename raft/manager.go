@@ -45,6 +45,8 @@ func NewManager(config *Config, sm StateMachine) Manager {
 		sm,
 		nil, // leader
 		make(map[string]*client),
+		make(map[string]uint32),
+		make(map[string]uint32),
 		make(chan interface{}),
 		make(chan interface{}),
 		sync.Mutex{},
