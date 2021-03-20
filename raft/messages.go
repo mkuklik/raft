@@ -2,7 +2,6 @@ package raft
 
 import (
 	"bytes"
-	"encoding"
 	"encoding/gob"
 	"errors"
 	"io"
@@ -58,20 +57,6 @@ type VoteReply struct {
 // func (x *VoteReply) Abc() string {
 // 	return "fdf"
 // }
-
-type Payloader interface {
-	encoding.BinaryMarshaler
-	encoding.BinaryUnmarshaler
-}
-
-// LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
-type LogEntry struct {
-	Term  uint32 // leader's term
-	Index uint32 // log index
-	// plus:
-	// command to the state machine
-	Payload interface{} //Payloader
-}
 
 type AppendEntriesRequest struct {
 	Term         uint32     // leader’s term

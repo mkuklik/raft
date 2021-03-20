@@ -10,9 +10,9 @@ import "time"
 // • If election timeout elapses without receiving AppendEntries
 // RPC from current leader or granting vote to candidate: convert to candidate
 
-func (state *State) FollowerHandle(msg interface{}) interface{} {
-
-	switch m := msg.(type) {
+func (m *Manager) FollowerHandle(inb InboundType) interface{} {
+	state := &m.state
+	switch m := inb.Message.(type) {
 	case AppendEntriesRequest:
 		// Receiver implementation:
 		// 1. Reply false if term < currentTerm (§5.1)

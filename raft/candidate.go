@@ -2,9 +2,9 @@ package raft
 
 import "fmt"
 
-func (state *State) CandidateHandle(msg interface{}) interface{} {
+func (m *Manager) CandidateHandle(inb InboundType) interface{} {
 
-	switch m := msg.(type) {
+	switch m := inb.Message.(type) {
 	case AppendEntriesRequest:
 		fmt.Println("TODO", m.LeaderId)
 	}

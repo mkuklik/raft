@@ -10,6 +10,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type InboundType struct {
+	Client  *client
+	Message interface{}
+}
+
 type Manager struct {
 	config *Config
 
@@ -30,7 +35,7 @@ type Manager struct {
 	// on server (initialized to 0, increases monotonically)
 	matchIndex map[string]uint32
 
-	inbound  chan interface{}
+	inbound  chan InboundType
 	outbound chan interface{}
 
 	outboundLogEntriesLock sync.Mutex
@@ -47,7 +52,7 @@ func NewManager(config *Config, sm StateMachine) Manager {
 		make(map[string]*client),
 		make(map[string]uint32),
 		make(map[string]uint32),
-		make(chan interface{}),
+		make(chan InboundType),
 		make(chan interface{}),
 		sync.Mutex{},
 		make([]LogEntry, 0, 100),
@@ -66,8 +71,8 @@ func (m *Manager) Loop() {
 				if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
 					m.SwitchTo(Candidate)
 				}
-			case msg := <-m.inbound:
-				m.state.FollowerHandle(msg)
+			case inb := <-m.inbound:
+				m.FollowerHandle(inb)
 			}
 		case Leader:
 			select {
@@ -77,7 +82,7 @@ func (m *Manager) Loop() {
 				m.outboundLogEntries = m.outboundLogEntries[:0]
 				m.outboundLogEntriesLock.Unlock()
 			case msg := <-m.inbound:
-				m.state.LeaderHandle(msg)
+				m.LeaderHandle(msg)
 			default:
 			}
 
@@ -88,8 +93,8 @@ func (m *Manager) Loop() {
 			// 	if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
 			// 		m.SwitchTo(Candidate)
 			// 	}
-			case msg := <-m.inbound:
-				m.state.CandidateHandle(msg)
+			case inb := <-m.inbound:
+				m.CandidateHandle(inb)
 			}
 		}
 	}
@@ -110,8 +115,6 @@ func (m *Manager) SwitchTo(to NodeStatus) {
 	}
 }
 
-var count = 0
-
 func (m *Manager) handleConnection(c *client) {
 	for {
 		msg, err := c.recv()
@@ -120,9 +123,8 @@ func (m *Manager) handleConnection(c *client) {
 			log.Infof("Closing connection with %s, EOF", c.addr)
 			break
 		}
-		m.inbound <- msg
+		m.inbound <- InboundType{c, msg}
 	}
-	// TODO regegister connection
 	m.DeregisterClinet(c)
 }
 
@@ -248,6 +250,16 @@ func (m *Manager) RegisterClient(c *client) {
 }
 
 func (m *Manager) DeregisterClinet(c *client) {
+	if _, exists := m.clients[c.addr]; exists {
+		delete(m.clients, c.addr)
+	}
+	c.close()
+	log.Infof("Deregistered client, %s at %s", c.name, c.addr)
+}
+
+// AddLogEntry used by client to propagate log entry
+func (m *Manager) AddLogEntry(payload interface{}) {
+
 	if _, exists := m.clients[c.addr]; exists {
 		delete(m.clients, c.addr)
 	}
