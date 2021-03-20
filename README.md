@@ -1,7 +1,9 @@
 # raft
 Raft implementation
 
-
+# TODO
+- (Reinitialized after election) nextIndex, matchIndex
+- 
 
 
 Sources:

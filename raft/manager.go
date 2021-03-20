@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,12 +16,25 @@ type Manager struct {
 	nodeStatus NodeStatus
 	state      State
 	sm         StateMachine
+	leader     *client
 
-	leader *client
+	clients map[string]*client
 
-	clients  map[string]*client
+	// nextIndex
+	// for each server, index of the next log entry to send to that
+	// server (initialized to leader last log index + 1)
+	nextIndex map[string]uint32
+
+	// matchIndex
+	// for each server, index of highest log entry known to be replicated
+	// on server (initialized to 0, increases monotonically)
+	matchIndex map[string]uint32
+
 	inbound  chan interface{}
 	outbound chan interface{}
+
+	outboundLogEntriesLock sync.Mutex
+	outboundLogEntries     []LogEntry
 }
 
 func NewManager(config *Config, sm StateMachine) Manager {
@@ -33,6 +47,8 @@ func NewManager(config *Config, sm StateMachine) Manager {
 		make(map[string]*client),
 		make(chan interface{}),
 		make(chan interface{}),
+		sync.Mutex{},
+		make([]LogEntry, 0, 100),
 	}
 }
 
@@ -54,7 +70,10 @@ func (m *Manager) Loop() {
 		case Leader:
 			select {
 			case <-heartBeatTimer.C:
-				m.outbound <- AppendEntriesRequest{m.state.CurrentTerm, 0, 0, 0, 0, []LogEntry{}}
+				m.outboundLogEntriesLock.Lock()
+				m.outbound <- AppendEntriesRequest{m.state.CurrentTerm, 0, 0, 0, 0, m.outboundLogEntries}
+				m.outboundLogEntries = m.outboundLogEntries[:0]
+				m.outboundLogEntriesLock.Unlock()
 			case msg := <-m.inbound:
 				m.state.LeaderHandle(msg)
 			default:
@@ -145,6 +164,7 @@ func (m *Manager) connectToLeader(address string) (*client, error) {
 	return nil, fmt.Errorf("Failed finding a leader after %d attempts", n)
 }
 
+// Bootstrap start with connection the the leader
 func (m *Manager) Bootstrap(address string) {
 	leader, err := m.connectToLeader(address)
 	if err != nil {
@@ -156,8 +176,8 @@ func (m *Manager) Bootstrap(address string) {
 	go m.handleConnection(leader)
 }
 
-// Run Raft
-func (m *Manager) RunListener(addr string) {
+// runListener run listener to incoming traffic
+func (m *Manager) runListener(addr string) {
 
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -200,7 +220,7 @@ func (m *Manager) RunListener(addr string) {
 	}
 }
 
-func (m *Manager) RunBroadcast() {
+func (m *Manager) runBroadcast() {
 	for {
 		select {
 		case msg := <-m.outbound:
@@ -213,8 +233,8 @@ func (m *Manager) RunBroadcast() {
 }
 
 func (m *Manager) Run(addr string) {
-	go m.RunListener(addr)
-	go m.RunBroadcast()
+	go m.runListener(addr)
+	go m.runBroadcast()
 	m.Loop()
 }
 
