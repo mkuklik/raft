@@ -18,7 +18,7 @@ func init() {
 	gob.Register(LogEntry{})
 }
 
-type Message struct {
+type Packet struct {
 	Message interface{}
 }
 

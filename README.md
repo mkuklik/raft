@@ -5,7 +5,7 @@ Raft implementation
 
 
 Sources:
-- 
+- https://github.com/etcd-io/etcd/blob/master/raft/README.md
 - https://ieftimov.com/post/understanding-bytes-golang-build-tcp-protocol/
 - https://opensource.com/article/18/5/building-concurrent-tcp-server-go
 

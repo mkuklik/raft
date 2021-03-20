@@ -27,7 +27,8 @@ func main() {
 
 	flag.String("log", "prod", "logger type: none, dev, prod*")
 	flag.String("db", "pg", "database backend: pg")
-	flag.Bool("bootstrap", false, "bootstrap cluster")
+	addr := flag.String("addr", ":1234", "address")
+	flag.String("bootstrap", "", "address to bootstrap cluster")
 	configFile := flag.String("config", "", "config file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -50,5 +51,11 @@ func main() {
 
 	sm := StateM{}
 	mgr := raft.NewManager(&config, sm)
-	mgr.Run(":1234")
+
+	if config.Bootstrap != "" {
+		mgr.Bootstrap(config.Bootstrap)
+	} else {
+		mgr.SwitchTo(raft.Leader)
+	}
+	mgr.Run(*addr)
 }

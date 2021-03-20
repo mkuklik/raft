@@ -13,7 +13,7 @@ type TestPayload struct {
 
 func init() {
 	gob.Register(TestPayload{})
-	gob.Register(Message{})
+	gob.Register(Packet{})
 	gob.Register(VoteRequest{})
 	gob.Register(VoteReply{})
 	gob.Register(AppendEntriesRequest{})
@@ -110,12 +110,12 @@ func TestMessageEncodingDecoding(t *testing.T) {
 		enc := gob.NewEncoder(&network) // Will write to network.
 		dec := gob.NewDecoder(&network) // Will read from network.
 		// Encode (send) the value.
-		err := enc.Encode(Message{want})
+		err := enc.Encode(Packet{want})
 		if err != nil {
 			t.Fatal("encode error:", err)
 		}
 		// Decode (receive) the value.
-		tmp := Message{}
+		tmp := Packet{}
 		var got AppendEntriesRequest
 		err = dec.Decode(&tmp)
 		if err != nil {
@@ -164,12 +164,12 @@ func TestStream(t *testing.T) {
 
 		enc := gob.NewEncoder(&network) // Will write to network.
 		// Encode (send) the value.
-		err := enc.Encode(Message{want})
+		err := enc.Encode(Packet{want})
 		// err := enc.Encode(want)
 		if err != nil {
 			t.Fatal("encode error:", err)
 		}
-		err = enc.Encode(Message{want2})
+		err = enc.Encode(Packet{want2})
 		// err = enc.Encode(want2)
 		if err != nil {
 			t.Fatal("encode error:", err)
@@ -177,7 +177,7 @@ func TestStream(t *testing.T) {
 
 		dec := gob.NewDecoder(&network) // Will read from network.
 
-		msg1 := Message{}
+		msg1 := Packet{}
 		err = dec.Decode(&msg1)
 		if err != nil {
 			t.Fatal("decoding error:", err)
@@ -187,7 +187,7 @@ func TestStream(t *testing.T) {
 			t.Errorf("got %v want %v", got, want)
 		}
 
-		msg2 := Message{}
+		msg2 := Packet{}
 		err = dec.Decode(&msg2)
 		var got2 VoteReply
 		got2 = msg2.Message.(VoteReply)

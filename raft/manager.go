@@ -1,11 +1,9 @@
 package raft
 
 import (
-	"encoding/gob"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -18,8 +16,11 @@ type Manager struct {
 	state      State
 	sm         StateMachine
 
-	connections map[string]net.Conn
-	inbound     chan Message
+	leader *client
+
+	clients  map[string]*client
+	inbound  chan interface{}
+	outbound chan interface{}
 }
 
 func NewManager(config *Config, sm StateMachine) Manager {
@@ -28,139 +29,205 @@ func NewManager(config *Config, sm StateMachine) Manager {
 		Follower,
 		State{},
 		sm,
-		make(map[string]net.Conn),
-		make(chan Message)}
+		nil, // leader
+		make(map[string]*client),
+		make(chan interface{}),
+		make(chan interface{}),
+	}
 }
 
-func (m *Manager) Loop(chan int) {
-	timer := time.NewTimer(2 * time.Second)
-	for {
-		select {
-		case <-timer.C:
-			if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
-				m.SwitchToCandidate()
-			}
-		case msg := <-m.inbound:
+func (m *Manager) Loop() {
+	electionTimeoutTimer := time.NewTimer(m.config.ElectionTimeout)
+	heartBeatTimer := time.NewTimer(m.config.HeartBeat)
 
-			switch m.nodeStatus {
-			case Follower:
+	for {
+		switch m.nodeStatus {
+		case Follower:
+			select {
+			case <-electionTimeoutTimer.C:
+				if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
+					m.SwitchTo(Candidate)
+				}
+			case msg := <-m.inbound:
 				m.state.FollowerHandle(msg)
-			case Leader:
+			}
+		case Leader:
+			select {
+			case <-heartBeatTimer.C:
+				m.outbound <- AppendEntriesRequest{m.state.CurrentTerm, 0, 0, 0, 0, []LogEntry{}}
+			case msg := <-m.inbound:
 				m.state.LeaderHandle(msg)
-			case Candidate:
+			}
+
+		case Candidate:
+			select {
+			// ????
+			// case <-electionTimeoutTimer.C:
+			// 	if time.Now().After(m.state.broadcastTime.Add(m.config.ElectionTimeout)) {
+			// 		m.SwitchTo(Candidate)
+			// 	}
+			case msg := <-m.inbound:
 				m.state.CandidateHandle(msg)
 			}
-			// case
-			// TODO
 		}
 	}
 }
 
-func (m *Manager) SwitchToCandidate() {
-	m.nodeStatus = Candidate
-}
-
-func (m *Manager) broadcast(msg Message) error {
-	// for name, c := range m.clients {
-	// 	c.conn
-	// }
-	return nil
+func (m *Manager) SwitchTo(to NodeStatus) {
+	if to == Leader {
+		m.nodeStatus = Leader
+		log.Infof("Becoming a leader")
+	} else if to == Follower {
+		m.nodeStatus = Follower
+		log.Infof("Becoming a follower")
+	} else if to == Candidate {
+		m.nodeStatus = Candidate
+		log.Infof("Becoming a candidate")
+	} else {
+		log.Fatalf("SwitchTo: invalid nodeStatus")
+	}
 }
 
 var count = 0
 
-func (m *Manager) handleConnection(c net.Conn) {
-	dec := gob.NewDecoder(c)
+func (m *Manager) handleConnection(c *client) {
 	for {
-		msg := Message{}
-		err := dec.Decode(&msg)
+		msg, err := c.recv()
 		if err == io.EOF {
 			// TOOD close connection or try to reconnect
-			log.Errorf("Decode failed, %s", err.Error())
+			log.Infof("Closing connection with %s, EOF", c.addr)
 			break
 		}
 		m.inbound <- msg
 	}
 	// TODO regegister connection
-	// m.deregister(c)
-	c.Close()
+	m.DeregisterClinet(c)
 }
 
-func connectToLeader(address string) (net.Conn, error) {
+func (m *Manager) connectToLeader(address string) (*client, error) {
 	var err error
-	var c net.Conn
+	var conn net.Conn
 	// Find leader
-	for {
+	var n uint32
+	for n < m.config.MaxConnectionAttempts {
 		log.Infof("Dialing %s", address)
-		c, err = net.Dial("tcp", address)
+		conn, err = net.Dial("tcp", address)
 		if err != nil {
-			log.Errorf("Dialing failed")
-			fmt.Println(err)
-			return nil, err
+			log.Errorf("Dialing failed, %s", err.Error())
+			n++
+			time.Sleep(time.Duration(10*n) * time.Millisecond)
+			continue
 		}
-		// send registration request
-		enc := gob.NewEncoder(c)
-		enc.Encode(RegistrationRequest{"Jon"})
+		c := newClient(conn, "")
 
-		dec := gob.NewDecoder(c)
-		replyMsg := Message{}
-		err = dec.Decode(&replyMsg)
+		// send registration request
+		c.send(RegistrationRequest{"Jon"})
+
+		// check response
+		msg, err := c.recv()
 		if err != nil {
-			log.Errorf("No response failed")
+			log.Errorf("Invalid response from %s, %s", address, err.Error())
 		}
-		reply := replyMsg.Message.(RegistrationReply)
+		reply := msg.(RegistrationReply)
 		if reply.Success {
-			// TODO
+			log.Infof("Connected successfully to a leader at %s", address)
+			return &c, nil
 		} else if reply.Address != "" {
 			address = reply.Address
+			log.Infof("forwarded to a leader at %s", address)
+		} else {
+			time.Sleep(time.Duration(10*n) * time.Millisecond)
 		}
 	}
-	return c, nil
+	n++
+	log.Errorf("Failed finding a leader after %d attempts", n)
+	return nil, fmt.Errorf("Failed finding a leader after %d attempts", n)
+}
+
+func (m *Manager) Bootstrap(address string) {
+	leader, err := m.connectToLeader(address)
+	if err != nil {
+		panic(err) // TODO graceful shotdown
+	}
+	m.RegisterClient(leader)
+	m.leader = leader
+	m.state.broadcastTime = time.Now()
+	go m.handleConnection(leader)
 }
 
 // Run Raft
-func (m *Manager) Run(address string) {
+func (m *Manager) RunListener(addr string) {
 
-	if !m.config.Bootstrap {
-		leaderConn, err := connectToLeader(address)
-		if err != nil {
-			log.Fatalf("failed to find a leader")
-		}
-		m.RegisterConn("", leaderConn)
-		go m.handleConnection(leaderConn)
-	}
-
-	port := 1234
-	// add := address
-	add := ":" + strconv.Itoa(port)
-	l, err := net.Listen("tcp", add)
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalf("failed to listen on %s, %s", addr, err.Error())
 		return
 	}
 	defer l.Close()
 
 	for {
-		c, err := l.Accept()
+		log.Infof("Listining on %s", addr)
+		conn, err := l.Accept()
+		log.Infof("connection from %s", conn.RemoteAddr().String())
 		if err != nil {
-			log.Errorf("conn Accept failed, %s", err.Error())
+			log.Errorf("connection accept failed, %s", err.Error())
 		}
-		go m.handleConnection(c)
+		c := newClient(conn, conn.RemoteAddr().String())
+		// read registration request
+		msg, err := c.recv()
+		if err != nil {
+			log.Infof("invalid registration request from %s, %s", c.addr, err.Error())
+			c.close()
+			continue
+		}
+		req, ok := msg.(RegistrationRequest)
+		if !ok {
+			log.Infof("invalid registration request from %s, %s", c.addr, err.Error())
+			c.close()
+			continue
+		}
+
+		if m.nodeStatus == Leader {
+			log.Infof("registration request from %s at %s", req.Name, c.addr)
+			m.RegisterClient(&c)
+			c.send(RegistrationReply{true, ""})
+			go m.handleConnection(&c)
+		} else {
+			// Candidate or follower
+			c.send(RegistrationReply{false, m.leader.addr})
+		}
 	}
 }
 
-type client struct {
-	conn net.Conn
-	name string
-}
-
-func (c *client) send(msg Message) error {
-	enc := gob.NewEncoder(c.conn)
-	return enc.Encode(msg)
-}
-
-func (m *Manager) RegisterConn(name string, c net.Conn) {
-	if _, exists := m.connections[name]; !exists {
-		m.connections[name] = c
+func (m *Manager) RunBroadcast() {
+	for {
+		select {
+		case msg := <-m.outbound:
+			log.Infof("broadcast %#v", msg)
+			for _, c := range m.clients {
+				c.send(msg)
+			}
+		}
 	}
+}
+
+func (m *Manager) Run(addr string) {
+	go m.RunListener(addr)
+	go m.RunBroadcast()
+	m.Loop()
+}
+
+func (m *Manager) RegisterClient(c *client) {
+	if _, exists := m.clients[c.addr]; !exists {
+		m.clients[c.addr] = c
+	}
+	log.Debugf("Registered client, %s at %s", c.name, c.addr)
+}
+
+func (m *Manager) DeregisterClinet(c *client) {
+	if _, exists := m.clients[c.addr]; exists {
+		delete(m.clients, c.addr)
+	}
+	c.close()
+	log.Infof("Deregistered client, %s at %s", c.name, c.addr)
 }

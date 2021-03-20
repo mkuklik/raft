@@ -1,5 +1,7 @@
 package raft
 
+import "time"
+
 // leader maintains nextIndex for each follower; it is initiated at index leader is at,
 // and in case of conflict, leader drops nextIndex for the follower and reties AppendEntries
 
@@ -47,6 +49,9 @@ func (state *State) FollowerHandle(msg interface{}) interface{} {
 				state.CommitIndex = indexLastNewEntry
 			}
 		}
+
+		state.broadcastTime = time.Now()
+
 		return AppendEntriesReply{state.CurrentTerm, true}
 
 	case VoteRequest:
