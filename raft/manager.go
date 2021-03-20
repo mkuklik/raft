@@ -37,8 +37,8 @@ func NewManager(config *Config, sm StateMachine) Manager {
 }
 
 func (m *Manager) Loop() {
-	electionTimeoutTimer := time.NewTimer(m.config.ElectionTimeout)
-	heartBeatTimer := time.NewTimer(m.config.HeartBeat)
+	electionTimeoutTimer := time.NewTicker(m.config.ElectionTimeout)
+	heartBeatTimer := time.NewTicker(m.config.HeartBeat)
 
 	for {
 		switch m.nodeStatus {
@@ -57,6 +57,7 @@ func (m *Manager) Loop() {
 				m.outbound <- AppendEntriesRequest{m.state.CurrentTerm, 0, 0, 0, 0, []LogEntry{}}
 			case msg := <-m.inbound:
 				m.state.LeaderHandle(msg)
+			default:
 			}
 
 		case Candidate:
