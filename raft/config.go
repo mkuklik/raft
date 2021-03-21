@@ -3,6 +3,9 @@ package raft
 import "time"
 
 type Config struct {
+	// Peers addresses to other servers
+	Peers []string
+
 	// Bootstrap leader address to connect to
 	Bootstrap string
 

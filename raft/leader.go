@@ -1,5 +1,14 @@
 package raft
 
+import (
+	"context"
+	"fmt"
+	"time"
+
+	pb "github.com/mkuklik/raft/raftpb"
+	log "github.com/sirupsen/logrus"
+)
+
 // leader maintains nextIndex for each follower; it is initiated at index leader is at,
 // and in case of conflict, leader drops nextIndex for the follower and reties AppendEntries
 
@@ -22,30 +31,6 @@ decrement nextIndex and retry (§5.3)
 of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
 */
 
-func (m *Manager) LeaderHandle(inb ClinetNMessage) interface{} {
-
-	switch msg := inb.Message.(type) {
-	case AppendEntriesReply:
-		if msg.Success {
-			// If successful: update nextIndex and matchIndex for follower (§5.3)
-			//msg.
-		} else {
-			m.nextIndex[inb.Client.addr]--
-			inb.Client.send(AppendEntriesRequest{
-				m.state.CurrentTerm,
-				0, // ??
-				0, // ??
-				0, // ??
-				m.state.CommitIndex,
-				[]LogEntry{}, // ??
-			})
-		}
-	case VoteRequest:
-
-	}
-	return nil // TODO
-}
-
 /*
  Each client request contains a command to be executed by the replicated state machines.
  The leader appends the command to its log as a new entry, then is- sues AppendEntries
@@ -57,7 +42,87 @@ func (m *Manager) LeaderHandle(inb ClinetNMessage) interface{} {
  store all log en- tries.
 */
 
-// SubmitCommand client is using it to submit next command to state machine
-func (m *Manager) SubmitCommand(payload interface{}) {
+func (node *RaftNode) RunLeader(ctx context.Context) {
+	log.Infof("Starting as Leader")
 
+	heartBeatTimer := time.NewTicker(node.config.HeartBeat)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartBeatTimer.C:
+			node.outboundLogEntriesLock.Lock()
+			for _, client := range node.clients {
+				ctx2, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel()
+				go func() {
+					reply, err := client.AppendEntries(ctx2, &pb.AppendEntriesRequest{
+						Term:         node.state.CurrentTerm,
+						LeaderId:     0,
+						PrevLogIndex: 0,
+						PrevLogTerm:  0,
+						Entries:      []*pb.LogEntry{},
+						LeaderCommit: 0,
+					})
+					if err != nil {
+						// todo
+					}
+					if reply.Term > node.state.CurrentTerm {
+						// switch to follower
+						node.state.CurrentTerm = reply.Term
+						node.SwitchTo(Follower)
+					}
+					fmt.Println(reply) // todo
+				}()
+			}
+		default:
+		}
+	}
+}
+
+// AddLogEntry used by client to propagate log entry
+func (node *RaftNode) AddCommand(payload []byte) error {
+
+	prevLogEntry, newLogEntry := node.clog.Append(payload)
+	count := make(chan int, len(node.clients))
+	for _, client := range node.clients {
+		go func() {
+			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancelfunc()
+
+			reply, err := client.AppendEntries(ctx, &pb.AppendEntriesRequest{
+				Term:         node.state.CurrentTerm,
+				LeaderId:     0,
+				PrevLogIndex: prevLogEntry.Index,
+				PrevLogTerm:  prevLogEntry.Term,
+				Entries: []*pb.LogEntry{
+					&pb.LogEntry{
+						Term:    newLogEntry.Term,
+						Index:   newLogEntry.Index,
+						Payload: newLogEntry.Payload,
+					},
+				},
+				LeaderCommit: 0,
+			})
+			if err != nil {
+				// todo
+			}
+			if reply.Term != node.state.CurrentTerm {
+				// todo switch to follower
+			}
+			if reply.Success == true {
+				count <- 1
+			}
+			fmt.Println(reply) // todo
+		}()
+	}
+
+	majority := true
+	if !majority {
+		return fmt.Errorf("failed to apply command")
+	}
+	// if majority apply entry
+	node.sm.Apply(payload)
+	return nil
 }

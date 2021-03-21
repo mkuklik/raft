@@ -50,12 +50,6 @@ func main() {
 	cviper.Unmarshal(&config)
 
 	sm := StateM{}
-	mgr := raft.NewManager(&config, sm)
-
-	if config.Bootstrap != "" {
-		mgr.Bootstrap(config.Bootstrap)
-	} else {
-		mgr.SwitchTo(raft.Leader)
-	}
-	mgr.Run(*addr)
+	r := raft.NewRaftNode(&config, sm)
+	r.Run(*addr)
 }

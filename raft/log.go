@@ -1,14 +1,13 @@
 package raft
 
 import (
-	"encoding"
 	"sync"
 )
 
-type Payloader interface {
-	encoding.BinaryMarshaler
-	encoding.BinaryUnmarshaler
-}
+// type Payloader interface {
+// 	encoding.BinaryMarshaler
+// 	encoding.BinaryUnmarshaler
+// }
 
 // LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 type LogEntry struct {
@@ -16,7 +15,7 @@ type LogEntry struct {
 	Index uint32 // log index
 	// plus:
 	// command to the state machine
-	Payload interface{} //Payloader
+	Payload []byte
 }
 
 type CommandLog struct {
@@ -35,7 +34,7 @@ func NewCommandLog() CommandLog {
 	}
 }
 
-func (l *CommandLog) AddCommand(payload interface{}) (*LogEntry, *LogEntry) {
+func (l *CommandLog) Append(payload []byte) (*LogEntry, *LogEntry) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 	prevLogEntry := l.log[len(l.log)-1]
