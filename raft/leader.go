@@ -22,7 +22,7 @@ decrement nextIndex and retry (§5.3)
 of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
 */
 
-func (m *Manager) LeaderHandle(inb InboundType) interface{} {
+func (m *Manager) LeaderHandle(inb ClinetNMessage) interface{} {
 
 	switch msg := inb.Message.(type) {
 	case AppendEntriesReply:

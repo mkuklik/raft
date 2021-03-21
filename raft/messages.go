@@ -54,10 +54,7 @@ type VoteReply struct {
 	VoteGranted bool   // true means candidate received vote
 }
 
-// func (x *VoteReply) Abc() string {
-// 	return "fdf"
-// }
-
+// AppendEntriesRequest AppendEntriesRequest
 type AppendEntriesRequest struct {
 	Term         uint32     // leader’s term
 	LeaderId     uint32     // so follower can redirect clients

@@ -10,7 +10,7 @@ import "time"
 // • If election timeout elapses without receiving AppendEntries
 // RPC from current leader or granting vote to candidate: convert to candidate
 
-func (m *Manager) FollowerHandle(inb InboundType) interface{} {
+func (m *Manager) FollowerHandle(inb ClinetNMessage) interface{} {
 	state := &m.state
 	switch m := inb.Message.(type) {
 	case AppendEntriesRequest:
@@ -21,9 +21,10 @@ func (m *Manager) FollowerHandle(inb InboundType) interface{} {
 		}
 		// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 		// whose term matches prevLogTerm (§5.3)
-		if _, ok := state.Log[logIndex(m.Term, m.PrevLogIndex)]; !ok {
+		if _, ok := state.Log[logIndex(m.PrevLogTerm, m.PrevLogIndex)]; !ok {
 			return AppendEntriesReply{state.CurrentTerm, false}
 		}
+
 		// 3. If an existing entry conflicts with a new one (same index
 		// 	but different terms), delete the existing entry and all that
 		// 	follow it (§5.3)

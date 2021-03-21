@@ -26,19 +26,21 @@ type CommandLog struct {
 	lock  sync.Mutex
 }
 
-func NewCommandLog(term uint32) CommandLog {
+func NewCommandLog() CommandLog {
 	return CommandLog{
 		make([]LogEntry, 0, 100),
-		term,
+		0,
 		0,
 		sync.Mutex{},
 	}
 }
 
-func (l *CommandLog) AddCommand(payload interface{}) uint32 {
+func (l *CommandLog) AddCommand(payload interface{}) (*LogEntry, *LogEntry) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+	prevLogEntry := l.log[len(l.log)-1]
 	l.Index++
-	l.log = append(l.log, LogEntry{l.Term, l.Index, payload})
-	return l.Index
+	e := LogEntry{l.Term, l.Index, payload}
+	l.log = append(l.log, e)
+	return &prevLogEntry, &e
 }

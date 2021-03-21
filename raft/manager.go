@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type InboundType struct {
+type ClinetNMessage struct {
 	Client  *client
 	Message interface{}
 }
@@ -21,6 +21,7 @@ type Manager struct {
 	nodeStatus NodeStatus
 	state      State
 	sm         StateMachine
+	clog       *CommandLog
 	leader     *client
 
 	clients map[string]*client
@@ -35,7 +36,7 @@ type Manager struct {
 	// on server (initialized to 0, increases monotonically)
 	matchIndex map[string]uint32
 
-	inbound  chan InboundType
+	inbound  chan ClinetNMessage
 	outbound chan interface{}
 
 	outboundLogEntriesLock sync.Mutex
@@ -43,16 +44,18 @@ type Manager struct {
 }
 
 func NewManager(config *Config, sm StateMachine) Manager {
+	log := NewCommandLog()
 	return Manager{
 		config,
 		Follower,
-		State{},
+		NewState(),
 		sm,
+		&log,
 		nil, // leader
 		make(map[string]*client),
 		make(map[string]uint32),
 		make(map[string]uint32),
-		make(chan InboundType),
+		make(chan ClinetNMessage),
 		make(chan interface{}),
 		sync.Mutex{},
 		make([]LogEntry, 0, 100),
@@ -123,7 +126,7 @@ func (m *Manager) handleConnection(c *client) {
 			log.Infof("Closing connection with %s, EOF", c.addr)
 			break
 		}
-		m.inbound <- InboundType{c, msg}
+		m.inbound <- ClinetNMessage{c, msg}
 	}
 	m.DeregisterClinet(c)
 }
@@ -259,10 +262,14 @@ func (m *Manager) DeregisterClinet(c *client) {
 
 // AddLogEntry used by client to propagate log entry
 func (m *Manager) AddLogEntry(payload interface{}) {
-
-	if _, exists := m.clients[c.addr]; exists {
-		delete(m.clients, c.addr)
+	prevLogEntry, newLogEntry := m.clog.AddCommand(payload)
+	// replicate log entry
+	m.outbound <- AppendEntriesRequest{
+		m.state.CurrentTerm,
+		0, // ?? leaderID
+		prevLogEntry.Index,
+		prevLogEntry.Term,
+		m.state.CommitIndex, // ??
+		[]LogEntry{*newLogEntry},
 	}
-	c.close()
-	log.Infof("Deregistered client, %s at %s", c.name, c.addr)
 }
