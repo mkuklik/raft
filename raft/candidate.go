@@ -35,7 +35,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 
 	// send out VoteRequests
 	lock := sync.Mutex{}
-	yea := 0
+	vote := make(chan bool)
 	for _, client := range node.clients {
 		tx, cancel := context.WithTimeout(ctx, node.config.ElectionTimeout)
 		defer cancel()
@@ -46,19 +46,22 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			} else {
 				if resp.VoteGranted {
 					lock.Lock()
-					yea++
+					vote <- true
 					lock.Unlock()
 				}
-			}
-			if yea > len(node.config.Peers)/2 {
-				// won by majority
-				return
 			}
 		}()
 	}
 
-	if yea > len(node.config.Peers)/2 {
-
+	yea := 0
+	for {
+		select {
+		case <-vote:
+			yea++
+			if yea > len(node.config.Peers)/2 {
+				break
+			}
+		}
 	}
 
 	for {
