@@ -43,11 +43,12 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			resp, err := client.RequestVote(tx, req)
 			if err != nil {
 				log.Errorf("RequestVote err, %s", err.Error())
-			}
-			if resp.VoteGranted {
-				lock.Lock()
-				yea++
-				lock.Unlock()
+			} else {
+				if resp.VoteGranted {
+					lock.Lock()
+					yea++
+					lock.Unlock()
+				}
 			}
 			if yea > len(node.config.Peers)/2 {
 				// won by majority
@@ -55,6 +56,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			}
 		}()
 	}
+
 	if yea > len(node.config.Peers)/2 {
 
 	}
