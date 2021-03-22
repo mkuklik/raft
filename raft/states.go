@@ -24,7 +24,7 @@ func logIndex(term, index uint32) LogIndex {
 type PersistantState struct {
 	// (Updated on stable storage before responding to RPCs)
 	CurrentTerm uint32                // latest term server has seen (initialized to 0 on first boot, increases monotonically)
-	VotedFor    uint32                // candidateId that received vote in current term (or null if none)
+	VotedFor    int                   // candidateId that received vote in current term (or null if none)
 	Log         map[LogIndex]LogEntry // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 }
 
@@ -46,9 +46,16 @@ type State struct {
 	VolatileState
 	LeaderState
 
-	LeaderID uint32
+	LeaderID int
 }
 
 func NewState() State {
-	return State{}
+	return State{
+		PersistantState{
+			VotedFor: -1,
+		},
+		VolatileState{},
+		LeaderState{},
+		-1, // LeaderID
+	}
 }

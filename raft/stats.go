@@ -1,0 +1,43 @@
+package raft
+
+import (
+	"context"
+	"fmt"
+	"net"
+
+	"google.golang.org/grpc/stats"
+)
+
+// Build stats handler
+type serverStats struct {
+	node *RaftNode
+	name string
+}
+
+func (h *serverStats) TagRPC(ctx context.Context, info *stats.RPCTagInfo) context.Context {
+	// fmt.Printf("%s: TagRPC, %#v\n", h.name, info)
+	return ctx
+}
+
+func (h *serverStats) HandleRPC(ctx context.Context, s stats.RPCStats) {
+	// log.Infof("%s: HandleRPC, %#v\n", h.name, s)
+}
+
+func (h *serverStats) TagConn(ctx context.Context, info *stats.ConnTagInfo) context.Context {
+	// fmt.Printf("%s: TagConn, %#v\n", h.name, info)
+	return context.WithValue(ctx, AddressKey, info.RemoteAddr)
+}
+
+func (h *serverStats) HandleConn(ctx context.Context, s stats.ConnStats) {
+	// log.Infof("HandleConn Addresskey: %#v", ctx.Value(AddressKey)) // Returns nil, can't access the value
+	addr := ctx.Value(AddressKey).(net.Addr).String()
+
+	switch s.(type) {
+	case *stats.ConnBegin:
+		fmt.Printf("%s: client connected, %s\n", h.name, addr)
+	case *stats.ConnEnd:
+		fmt.Printf("%s: client disconnected, %s\n", h.name, addr)
+	default:
+		fmt.Printf("%s: stats message, %#v\n", h.name, s)
+	}
+}

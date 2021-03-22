@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"net"
 
 	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
@@ -21,8 +22,7 @@ func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRe
 	if node.nodeStatus == Candidate {
 		// If AppendEntries RPC received from new leader: convert to follower
 		// TODO lock here
-		node.state.LeaderID = msg.LeaderId
-		node.state.LeaderID = msg.LeaderId
+		node.state.LeaderID = int(msg.LeaderId)
 		node.SwitchTo(Follower)
 	}
 
@@ -70,16 +70,21 @@ func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRe
 	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 }
 func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	log.Infof("recieved vote request from %s", ctx.Value(AddressKey).(net.Addr).String())
+
 	// 1. Reply false if term < currentTerm (§5.1)
 	if msg.Term < node.state.CurrentTerm {
+		log.Infof("voted NO (1)")
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 	}
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
 	// least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
-	if (node.state.VotedFor == 0 || node.state.VotedFor == msg.CandidateId) &&
-		logIndex(msg.LastLogTerm, msg.LastLogIndex) > LogIndex(node.state.CommitIndex) { // ??? Doube check
+	if (node.state.VotedFor < 0 || node.state.VotedFor == int(msg.CandidateId)) &&
+		logIndex(msg.LastLogTerm, msg.LastLogIndex) >= LogIndex(node.state.CommitIndex) { // ??? Doube check
+		log.Infof("voted YES")
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: true}, nil
 	}
+	log.Infof("voted NO (3)")
 	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 }
 

@@ -2,30 +2,21 @@ package raft
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/status"
 )
 
-func (m *RaftNode) CandidateHandle(inb ClinetNMessage) interface{} {
-
-	switch m := inb.Message.(type) {
-	case AppendEntriesRequest:
-		fmt.Println("TODO", m.LeaderId)
-	}
-	return nil
-}
-
 func (node *RaftNode) RunCandidate(ctx context.Context) {
-	log.Infof("Starting as Candidate")
+	log.Infof("Switching to Candidate and starting election")
 
 	node.ResetElectionTimer()
 
 	// vote for yourself
 	node.state.CurrentTerm++
-	node.state.VotedFor = node.nodeID
+	node.state.VotedFor = int(node.nodeID)
 	req := &raftpb.RequestVoteRequest{
 		Term:         node.state.CurrentTerm,
 		CandidateId:  0,
@@ -36,42 +27,51 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	// send out VoteRequests
 	lock := sync.Mutex{}
 	vote := make(chan bool)
-	for _, client := range node.clients {
-		tx, cancel := context.WithTimeout(ctx, node.config.ElectionTimeout)
-		defer cancel()
-		go func() {
-			resp, err := client.RequestVote(tx, req)
-			if err != nil {
-				log.Errorf("RequestVote err, %s", err.Error())
-			} else {
-				if resp.VoteGranted {
-					lock.Lock()
-					vote <- true
-					lock.Unlock()
+	for id, client := range node.clients {
+		if id != int(node.nodeID) { // skip candidate/leader
+
+			tx, cancel := context.WithTimeout(ctx, node.config.ElectionTimeout)
+			defer cancel()
+
+			go func(c *raftpb.RaftClient) {
+				log.Infof("requesting vote from %d", id)
+				resp, err := (*c).RequestVote(tx, req)
+				if err != nil {
+					st, ok := status.FromError(err)
+					if ok {
+						log.Errorf("RequestVote to %s due to, %s", node.config.Peers[id], st.Message())
+					}
+				} else {
+					if resp.VoteGranted {
+						log.Infof("server %d voted YES", id)
+						lock.Lock()
+						vote <- true
+						lock.Unlock()
+					} else {
+						log.Infof("server %d voted NO", id)
+					}
 				}
-			}
-		}()
+			}(client)
+		}
 	}
 
 	yea := 0
 	for {
 		select {
+		case <-ctx.Done():
+			node.StopElectionTimer()
+			return
 		case <-vote:
 			yea++
-			if yea > len(node.config.Peers)/2 {
-				break
+			log.Infof("Checking majority, %d >= %d", yea, len(node.config.Peers)/2)
+			if yea >= len(node.config.Peers)/2 {
+				node.SwitchTo(Leader)
+				return
 			}
-		}
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
 		case <-node.electionTimeoutTimer.C:
-			// if time.Now().After(node.state.broadcastTime.Add(node.config.ElectionTimeout)) {
-			// 	node.SwitchTo(Candidate)
-			// }
+			// start new election
+			node.SwitchTo(Candidate)
+			return
 		default:
 		}
 	}

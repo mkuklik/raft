@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	pb "github.com/mkuklik/raft/raftpb"
+	"github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/status"
 )
 
 // leader maintains nextIndex for each follower; it is initiated at index leader is at,
@@ -42,41 +43,63 @@ of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5
  store all log en- tries.
 */
 
-func (node *RaftNode) RunLeader(ctx context.Context) {
-	log.Infof("Starting as Leader")
+func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntriesRequest {
+	// TODO
+	req := &raftpb.AppendEntriesRequest{
+		Term:         node.state.CurrentTerm,
+		LeaderId:     node.nodeID,
+		PrevLogIndex: 0,                    // ???
+		PrevLogTerm:  0,                    // ???
+		Entries:      []*raftpb.LogEntry{}, // ????
+		LeaderCommit: node.state.CommitIndex,
+	}
+	return req
+}
 
-	heartBeatTimer := time.NewTicker(node.config.HeartBeat)
+func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb.AppendEntriesRequest) {
+	client := node.clients[id]
+	reply, err := (*client).AppendEntries(ctx, req)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok {
+			log.Errorf("Heartbeat to %s due to, %s", node.config.Peers[id], st.Message())
+		}
+	} else {
+		if reply.Term > node.state.CurrentTerm {
+			// switch to follower
+			node.state.CurrentTerm = reply.Term
+			node.SwitchTo(Follower)
+		}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-heartBeatTimer.C:
-			node.outboundLogEntriesLock.Lock()
-			for _, client := range node.clients {
-				ctx2, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-				defer cancel()
-				go func() {
-					reply, err := client.AppendEntries(ctx2, &pb.AppendEntriesRequest{
-						Term:         node.state.CurrentTerm,
-						LeaderId:     0,
-						PrevLogIndex: 0,
-						PrevLogTerm:  0,
-						Entries:      []*pb.LogEntry{},
-						LeaderCommit: 0,
-					})
-					if err != nil {
-						// todo
-					}
-					if reply.Term > node.state.CurrentTerm {
-						// switch to follower
-						node.state.CurrentTerm = reply.Term
-						node.SwitchTo(Follower)
-					}
-					fmt.Println(reply) // todo
-				}()
-			}
-		default:
+		if !reply.Success {
+			// • If AppendEntries fails because of log inconsistency:
+			// decrement nextIndex and retry (§5.3)
+			node.state.NextIndex[id]-- // TODO lock
+			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
+		}
+
+	}
+}
+
+func (node *RaftNode) sendEmptyHeartBeat(ctx context.Context) {
+
+	emptyReq := &raftpb.AppendEntriesRequest{
+		Term:         node.state.CurrentTerm,
+		LeaderId:     node.nodeID,
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		Entries:      []*raftpb.LogEntry{},
+		LeaderCommit: node.state.CommitIndex,
+	}
+
+	for id := range node.clients {
+		if id != int(node.nodeID) { // skip candidate/leader
+			tx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			defer cancel()
+
+			go func(id int) {
+				node.sendAppendEntries(tx, id, emptyReq)
+			}(id)
 		}
 	}
 }
@@ -87,35 +110,36 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 	prevLogEntry, newLogEntry := node.clog.Append(payload)
 	count := make(chan int, len(node.clients))
 	for _, client := range node.clients {
-		go func() {
+		go func(c *raftpb.RaftClient) {
 			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancelfunc()
 
-			reply, err := client.AppendEntries(ctx, &pb.AppendEntriesRequest{
+			reply, err := (*c).AppendEntries(ctx, &raftpb.AppendEntriesRequest{
 				Term:         node.state.CurrentTerm,
 				LeaderId:     0,
 				PrevLogIndex: prevLogEntry.Index,
 				PrevLogTerm:  prevLogEntry.Term,
-				Entries: []*pb.LogEntry{
+				Entries: []*raftpb.LogEntry{
 					{
 						Term:    newLogEntry.Term,
 						Index:   newLogEntry.Index,
 						Payload: newLogEntry.Payload,
 					},
 				},
-				LeaderCommit: 0,
+				LeaderCommit: node.state.CommitIndex, // double check
 			})
 			if err != nil {
 				// todo
+			} else {
+				if reply.Term != node.state.CurrentTerm {
+					// todo switch to follower
+				}
+				if reply.Success == true {
+					count <- 1
+				}
+				fmt.Println(reply) // todo
 			}
-			if reply.Term != node.state.CurrentTerm {
-				// todo switch to follower
-			}
-			if reply.Success == true {
-				count <- 1
-			}
-			fmt.Println(reply) // todo
-		}()
+		}(client)
 	}
 
 	majority := true
@@ -125,4 +149,38 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 	// if majority apply entry
 	node.sm.Apply(payload)
 	return nil
+}
+
+func (node *RaftNode) RunLeader(ctx context.Context) {
+	log.Infof("Starting as Leader")
+
+	// Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
+	// repeat during idle periods to prevent election timeouts (§5.2)
+	node.sendEmptyHeartBeat(ctx)
+
+	heartBeatTimer := time.NewTimer(node.config.HeartBeat)
+
+	for {
+		select {
+		case <-ctx.Done():
+			heartBeatTimer.Stop()
+			return
+		case <-heartBeatTimer.C:
+			// node.outboundLogEntriesLock.Lock()
+			for id := range node.clients {
+				if id != int(node.nodeID) { // skip candidate/leader
+
+					tx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+					defer cancel()
+
+					go func(id int) {
+						node.sendAppendEntries(tx, id, node.prepareLog(ctx, id))
+					}(id)
+				}
+			}
+
+			heartBeatTimer.Reset(node.config.HeartBeat)
+		default:
+		}
+	}
 }
