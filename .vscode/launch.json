@@ -10,6 +10,7 @@
       "request": "launch",
       "mode": "debug",
       "args": ["--bootstrap","localhost:1234", "--addr","localhost:1235"],
+      "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/cmd/node.go"
     },
     {
@@ -18,6 +19,7 @@
       "request": "launch",
       "mode": "debug",
       "args": ["--addr", "localhost:1234"],
+      "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/cmd/node.go"
     }
   ]

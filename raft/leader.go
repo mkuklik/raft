@@ -97,7 +97,7 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 				PrevLogIndex: prevLogEntry.Index,
 				PrevLogTerm:  prevLogEntry.Term,
 				Entries: []*pb.LogEntry{
-					&pb.LogEntry{
+					{
 						Term:    newLogEntry.Term,
 						Index:   newLogEntry.Index,
 						Payload: newLogEntry.Payload,

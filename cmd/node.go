@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"os"
+	"os/signal"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 
@@ -49,7 +53,27 @@ func main() {
 	config := raft.NewConfig()
 	cviper.Unmarshal(&config)
 
-	sm := StateM{}
-	r := raft.NewRaftNode(&config, sm)
-	r.Run(*addr)
+	var nodeID int = -1
+	for i, p := range config.Peers {
+		if p == *addr {
+			nodeID = i
+		}
+	}
+	if nodeID < 0 {
+		log.Fatalf("node address, %s, is not in a peer set", *addr)
+	}
+
+	sm := StateM{} // Some state machine
+	r := raft.NewRaftNode(&config, uint32(nodeID), sm)
+
+	termChan := make(chan os.Signal)
+	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+
+	r.Run(ctx, *addr)
+
+	<-termChan // Blocks here until either SIGINT or SIGTERM is received.
+
+	cancelFunc()
 }

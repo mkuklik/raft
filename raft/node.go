@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -10,9 +11,12 @@ import (
 	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/stats"
 )
+
+var ContextKey string
+
+const AddressKey string = "address"
 
 type ClinetNMessage struct {
 	Client  *client
@@ -23,6 +27,7 @@ type RaftNode struct {
 	pb.UnimplementedRaftServer
 
 	config *Config
+	nodeID uint32
 
 	nodeStatus NodeStatus
 	state      State
@@ -47,15 +52,19 @@ type RaftNode struct {
 
 	switchChan chan NodeStatus
 
+	// resetTimer chan is used to reset election timer
+	electionTimeoutTimer *time.Timer
+
 	outboundLogEntriesLock sync.Mutex
 	outboundLogEntries     []LogEntry
 }
 
-func NewRaftNode(config *Config, sm StateMachine) RaftNode {
+func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
 	log := NewCommandLog()
 	return RaftNode{
 		pb.UnimplementedRaftServer{},
 		config,
+		nodeID,
 		Follower,
 		NewState(),
 		sm,
@@ -67,6 +76,7 @@ func NewRaftNode(config *Config, sm StateMachine) RaftNode {
 		make(map[string]uint32),
 		make(chan interface{}),
 		make(chan NodeStatus),
+		time.NewTimer(config.ElectionTimeout),
 		sync.Mutex{},
 		make([]LogEntry, 0, 100),
 	}
@@ -76,19 +86,27 @@ func (node *RaftNode) SwitchTo(to NodeStatus) {
 	node.switchChan <- to
 }
 
-func (node *RaftNode) mainLoop() {
+func (node *RaftNode) ResetElectionTimer() {
+	tmp := node.config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
+	node.electionTimeoutTimer.Reset(tmp)
+	log.Infof("Election timer set to %s", tmp.String())
+}
+
+func (node *RaftNode) mainLoop(parentCtx context.Context) {
 
 	var ctx context.Context
 	var cancel context.CancelFunc
 
 	for {
 		select {
+		case <-parentCtx.Done():
+			break
 		case s := <-node.switchChan:
 			if cancel != nil {
 				cancel()
 			}
 			node.nodeStatus = s
-			ctx, cancel = context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(parentCtx)
 			switch s {
 			case Leader:
 				go node.RunLeader(ctx)
@@ -99,6 +117,7 @@ func (node *RaftNode) mainLoop() {
 			default:
 				log.Fatal("unsupported node status, %d", s)
 			}
+		default:
 		}
 	}
 }
@@ -170,7 +189,6 @@ func (node *RaftNode) mainLoop() {
 
 // runListener run listener to incoming traffic
 func (n *RaftNode) runListener(addr string) {
-
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen on %s, %s", addr, err.Error())
@@ -178,7 +196,7 @@ func (n *RaftNode) runListener(addr string) {
 	}
 	defer l.Close()
 
-	server := grpc.NewServer(grpc.StatsHandler(&serverStats{n}))
+	server := grpc.NewServer(grpc.StatsHandler(&serverStats{n, "server"}))
 	pb.RegisterRaftServer(server, n)
 	err = server.Serve(l)
 	if err != nil {
@@ -189,42 +207,32 @@ func (n *RaftNode) runListener(addr string) {
 func (node *RaftNode) connectToPeer(serverAddr string) {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
+		grpc.WithStatsHandler(&serverStats{node, "dialer"}),
 	}
-	conn, err := grpc.Dial(serverAddr, opts...)
+	conn, err := grpc.DialContext(
+		context.WithValue(context.Background(), AddressKey, serverAddr),
+		serverAddr,
+		opts...)
 	if err != nil {
 		log.Errorf("Dial failed, %s", err.Error())
 	}
-
 	node.conns[serverAddr] = conn
 	node.clients[serverAddr] = pb.NewRaftClient(conn)
 }
 
 func (node *RaftNode) connectToPeers(selfAddr string) {
-	for _, addr := range node.config.Peers {
-		if addr != selfAddr {
+	for id, addr := range node.config.Peers {
+		if id != int(node.nodeID) {
 			node.connectToPeer(addr)
 		}
 	}
 }
 
-// func (m *RaftNode) runBroadcast() {
-// 	for {
-// 		select {
-// 		case msg := <-m.outbound:
-// 			log.Infof("broadcast %#v", msg)
-// 			for _, c := range m.clients {
-// 				c.send(msg)
-// 			}
-// 		}
-// 	}
-// }
-
-func (node *RaftNode) Run(addr string) {
+func (node *RaftNode) Run(ctx context.Context, addr string) {
 	go node.runListener(addr)
 	node.connectToPeers(addr)
-	go node.mainLoop()
+	go node.mainLoop(ctx)
 	node.SwitchTo(Follower)
-	time.Sleep(10 * time.Second)
 }
 
 // func (m *RaftNode) RegisterClient(c *client) {
@@ -245,35 +253,33 @@ func (node *RaftNode) Run(addr string) {
 // Build stats handler
 type serverStats struct {
 	node *RaftNode
+	name string
 }
 
 func (h *serverStats) TagRPC(ctx context.Context, info *stats.RPCTagInfo) context.Context {
+	// fmt.Printf("%s: TagRPC, %#v\n", h.name, info)
 	return ctx
 }
 
-func (h *serverStats) HandleRPC(ctx context.Context, s stats.RPCStats) {}
+func (h *serverStats) HandleRPC(ctx context.Context, s stats.RPCStats) {
+	log.Infof("%s: HandleRPC, %#v\n", h.name, s)
+}
 
 func (h *serverStats) TagConn(ctx context.Context, info *stats.ConnTagInfo) context.Context {
-	return context.TODO()
+	// fmt.Printf("%s: TagConn, %#v\n", h.name, info)
+	return context.WithValue(ctx, AddressKey, info.RemoteAddr)
 }
 
 func (h *serverStats) HandleConn(ctx context.Context, s stats.ConnStats) {
-	fmt.Println(ctx.Value("user_id")) // Returns nil, can't access the value
-	var addr string
-	p, ok := peer.FromContext(ctx)
-	if ok {
-		addr = p.Addr.String()
-		log.Errorf("peer from context error, %s", addr)
-	} else {
-		addr = "???"
-	}
+	log.Infof("HandleConn Addresskey: %#v", ctx.Value(AddressKey)) // Returns nil, can't access the value
+	addr := ctx.Value(AddressKey).(net.Addr).String()
 
 	switch s.(type) {
-	case *stats.ConnEnd:
-		fmt.Println("client connected, %s", addr)
 	case *stats.ConnBegin:
-		fmt.Println("client disconnected, %s", addr)
+		fmt.Printf("%s: client connected, %s\n", h.name, addr)
+	case *stats.ConnEnd:
+		fmt.Printf("%s: client disconnected, %s\n", h.name, addr)
 	default:
-		fmt.Printf("stats message, %#v", s)
+		fmt.Printf("%s: stats message, %#v\n", h.name, s)
 	}
 }

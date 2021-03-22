@@ -1,7 +1,5 @@
 package raft
 
-import "time"
-
 type NodeStatus uint
 
 const (
@@ -48,7 +46,7 @@ type State struct {
 	VolatileState
 	LeaderState
 
-	broadcastTime time.Time
+	LeaderID uint32
 }
 
 func NewState() State {
