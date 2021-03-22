@@ -2,9 +2,9 @@ package raft
 
 import (
 	"context"
-	"fmt"
 	"net"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/stats"
 )
 
@@ -34,10 +34,10 @@ func (h *serverStats) HandleConn(ctx context.Context, s stats.ConnStats) {
 
 	switch s.(type) {
 	case *stats.ConnBegin:
-		fmt.Printf("%s: client connected, %s\n", h.name, addr)
+		log.Infof("%s: client connected, %s\n", h.name, addr)
 	case *stats.ConnEnd:
-		fmt.Printf("%s: client disconnected, %s\n", h.name, addr)
+		log.Infof("%s: client disconnected, %s\n", h.name, addr)
 	default:
-		fmt.Printf("%s: stats message, %#v\n", h.name, s)
+		log.Infof("%s: stats message, %#v\n", h.name, s)
 	}
 }

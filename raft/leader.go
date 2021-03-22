@@ -69,15 +69,16 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			// switch to follower
 			node.state.CurrentTerm = reply.Term
 			node.SwitchTo(Follower)
+		} else {
+			if !reply.Success {
+				// If AppendEntries fails because of log inconsistency:
+				// decrement nextIndex and retry (§5.3)
+				if id > 0 {
+					node.state.NextIndex[id]-- // TODO lock
+					go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
+				}
+			}
 		}
-
-		if !reply.Success {
-			// • If AppendEntries fails because of log inconsistency:
-			// decrement nextIndex and retry (§5.3)
-			node.state.NextIndex[id]-- // TODO lock
-			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
-		}
-
 	}
 }
 
