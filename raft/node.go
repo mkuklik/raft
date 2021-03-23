@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/rand"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
@@ -13,16 +12,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
-
-var ContextKey string
-
-const AddressKey string = "address"
-const NodeIDKey string = "nodeID"
-
-type ClinetNMessage struct {
-	Client  *client
-	Message interface{}
-}
 
 type RaftNode struct {
 	raftpb.UnimplementedRaftServer
@@ -35,30 +24,14 @@ type RaftNode struct {
 	state      State
 	sm         StateMachine
 	clog       *CommandLog
-	leader     *client
 
 	conns   []*grpc.ClientConn
 	clients []*raftpb.RaftClient
-
-	// nextIndex
-	// for each server, index of the next log entry to send to that
-	// server (initialized to leader last log index + 1)
-	nextIndex map[string]uint32
-
-	// matchIndex
-	// for each server, index of highest log entry known to be replicated
-	// on server (initialized to 0, increases monotonically)
-	matchIndex map[string]uint32
-
-	command chan interface{} // ?? Payloader
 
 	switchChan chan NodeStatus
 
 	// resetTimer chan is used to reset election timer
 	electionTimeoutTimer *time.Timer
-
-	outboundLogEntriesLock sync.Mutex
-	outboundLogEntries     []LogEntry
 }
 
 func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
@@ -79,16 +52,10 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
 		NewState(nPeers),
 		sm,
 		&commandLog,
-		nil, // leader
 		make([]*grpc.ClientConn, nPeers),
 		make([]*raftpb.RaftClient, nPeers),
-		make(map[string]uint32),
-		make(map[string]uint32),
-		make(chan interface{}),
 		make(chan NodeStatus),
 		time.NewTimer(config.ElectionTimeout),
-		sync.Mutex{},
-		make([]LogEntry, 0, 100),
 	}
 }
 
@@ -157,16 +124,6 @@ func (node *RaftNode) connectToPeer(ctx context.Context, id uint32, serverAddr s
 	node.conns[id] = conn
 	client := raftpb.NewRaftClient(conn)
 	node.clients[id] = &client
-
-	// reply, err := client.Register(ctx, &raftpb.RegisterRequest{Id: node.nodeID, Addr: node.addr})
-	// if err != nil {
-	// 	log.Errorf("failed register with %s, %s", serverAddr, err.Error())
-	// } else {
-	// 	if !reply.Success {
-	// 		log.Errorf("failed register with %s, %s", serverAddr, err.Error())
-	// 	}
-	// }
-
 }
 
 func (node *RaftNode) connectToPeers(ctx context.Context, selfAddr string) {

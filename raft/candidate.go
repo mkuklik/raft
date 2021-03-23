@@ -20,11 +20,21 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	// vote for yourself
 	node.state.CurrentTerm++
 	node.state.VotedFor = int(node.nodeID)
+	lastLogEntry := node.clog.Last()
+	var index, term uint32
+	if lastLogEntry == nil {
+		index = 0
+		term = 0
+	} else {
+		index = lastLogEntry.Index
+		term = lastLogEntry.Term
+	}
+
 	req := &raftpb.RequestVoteRequest{
 		Term:         node.state.CurrentTerm,
-		CandidateId:  0,
-		LastLogIndex: 0,
-		LastLogTerm:  0,
+		CandidateId:  node.nodeID,
+		LastLogIndex: index,
+		LastLogTerm:  term,
 	}
 
 	// send out VoteRequests
@@ -62,7 +72,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// node.StopElectionTimer()
+			node.StopElectionTimer()
 			return
 		case <-vote:
 			yea++
@@ -77,25 +87,39 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			log.Infof("election timout")
 			node.SwitchTo(Candidate)
 			return
-		default:
+			// default:
 		}
 	}
 }
 
 func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
 	// If AppendEntries RPC received from new leader: convert to follower
-
-	// TODO
-
-	node.state.LeaderID = int(msg.LeaderId)
-	node.SwitchTo(Follower)
-	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil // ????
+	/*
+		While waiting for votes, a candidate may receive an AppendEntries RPC from
+		another server claiming to be leader. If the leader’s term (included in its RPC)
+		is at least as large as the candidate’s current term, then the candidate recognizes
+		the leader as legitimate and returns to follower state. If the term in the RPC is
+		smaller than the candidate’s current term, then the candidate rejects the RPC and
+		continues in candidate state.
+	*/
+	if msg.Term >= node.state.CurrentTerm {
+		node.state.LeaderID = int(msg.LeaderId)
+		node.state.CurrentTerm = msg.Term
+		node.state.VotedFor = -1
+		node.SwitchTo(Follower)
+		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
+	}
+	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
 }
 
 func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
-	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
+	// candidate votes for itself
+	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 }
 
 func (node *RaftNode) InstallSnapshotCandidate(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+
+	// TODO
+
 	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }

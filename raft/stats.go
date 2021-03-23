@@ -8,6 +8,11 @@ import (
 	"google.golang.org/grpc/stats"
 )
 
+var ContextKey string
+
+const AddressKey string = "address"
+const NodeIDKey string = "nodeID"
+
 // Build stats handler
 type serverStats struct {
 	node *RaftNode

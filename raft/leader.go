@@ -65,7 +65,7 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok {
-			log.Errorf("Heartbeat to %s due to, %s", node.config.Peers[id], st.Message())
+			log.Errorf("failed sending AppendEntries to %s due to, %s", node.config.Peers[id], st.Message())
 		}
 	} else {
 		log.Infof("reply to AppendEntries from %d, (term %d, success %v", id, reply.Term, reply.Success)
@@ -167,6 +167,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			heartBeatTimer.Stop()
+			log.Infof("cancelled RunLeader")
 			return
 		case <-heartBeatTimer.C:
 			log.Infof("Leader timer")

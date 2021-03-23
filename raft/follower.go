@@ -27,10 +27,13 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		log.Infof("replied false to AppendEntries from %d; msg.Term %d, currentTerm %d", ctx.Value(NodeIDKey), msg.Term, node.state.CurrentTerm)
 		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 	}
-	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
-	// whose term matches prevLogTerm (§5.3)
+
+	// if len(msg.Entries) == 0, AppendEntries is a heartbeat check only
+
 	if len(msg.Entries) > 0 {
-		if _, ok := node.state.Log[logIndex(msg.PrevLogTerm, msg.PrevLogIndex)]; !ok {
+		// 2. Reply false if log doesn’t contain an entry at prevLogIndex
+		// whose term matches prevLogTerm (§5.3)
+		if !node.clog.Has(msg.PrevLogTerm, msg.PrevLogIndex) {
 			log.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
 			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 		}
@@ -42,25 +45,23 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		// TODO check conflict !!!
 
 		// 4. Append any new entries not already in the log
-		var indexLastNewEntry uint32
-		for _, entry := range msg.Entries {
-			inx := logIndex(entry.Term, entry.Index)
-			if _, ok := node.state.Log[inx]; !ok {
-				node.state.Log[inx] = LogEntry{entry.Term, entry.Index, entry.Payload}
-				indexLastNewEntry = entry.Index
-			}
+		tmp := make([]LogEntry, len(msg.Entries))
+		for i, entry := range msg.Entries {
+			tmp[i] = LogEntry{entry.Term, entry.Index, entry.Payload}
 		}
+		if !node.clog.AddEntries(&tmp) {
+			log.Infof("replied false to AppendEntries from %d; 4.", ctx.Value(NodeIDKey))
+			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
+		}
+	}
 
-		// ??? should 5. be also processed on empty heartbeat ???? !!!!!!!!
-
-		// 5. If leaderCommit > commitIndex, set commitIndex =
-		// 	min(leaderCommit, index of last new entry)
-		if msg.LeaderCommit > node.state.CommitIndex {
-			if msg.LeaderCommit < indexLastNewEntry {
-				node.state.CommitIndex = msg.LeaderCommit
-			} else {
-				node.state.CommitIndex = indexLastNewEntry
-			}
+	// 5. If leaderCommit > commitIndex, set commitIndex =
+	// 	min(leaderCommit, index of last new entry)
+	if msg.LeaderCommit > node.state.CommitIndex {
+		if last := node.clog.Last(); msg.LeaderCommit < last.Index {
+			node.state.CommitIndex = msg.LeaderCommit
+		} else {
+			node.state.CommitIndex = last.Index
 		}
 	}
 
@@ -98,17 +99,16 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 	node.ResetElectionTimer()
 
 	for {
-		// log.Infof("Follower Loop")
 		select {
 		case <-ctx.Done():
-			log.Infof("Exiting Follower")
+			log.Infof("cancelled RunFollower")
 			return
 		// reset election timer
 		case <-node.electionTimeoutTimer.C:
 			log.Infof("Follower timer")
 			node.SwitchTo(Candidate)
 			return
-		default:
+			// default:
 		}
 	}
 

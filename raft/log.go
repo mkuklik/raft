@@ -34,6 +34,37 @@ func NewCommandLog() CommandLog {
 	}
 }
 
+func (l *CommandLog) Last() *LogEntry {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if n := len(l.log); n > 0 {
+		return &l.log[n-1]
+	}
+	return nil
+}
+
+func (l *CommandLog) Has(term uint32, index uint32) bool {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+
+	// change to map lookup
+	for i := len(l.log); i >= 0; i++ {
+		if e := l.log[i]; e.Index == index && e.Term == term {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *CommandLog) AddEntries(entries *[]LogEntry) bool {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+
+	// TODO add entries that don't exist and skip oen already there
+	return false
+}
+
+// Append add new payload as entry; index is automatically generated
 func (l *CommandLog) Append(payload []byte) (*LogEntry, *LogEntry) {
 	l.lock.Lock()
 	defer l.lock.Unlock()

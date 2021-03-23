@@ -3,22 +3,22 @@ package raftpb;
 option go_package = "github.com/mkuklik/raft/raftpb";
 
 service Raft {
-  rpc Register(RegisterRequest) returns (RegisterReply) {}
+  // rpc Register(RegisterRequest) returns (RegisterReply) {}
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesReply) {}
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteReply) {}
   rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotReply) {}
 }
 
-message RegisterRequest {
-  uint32 id = 1;
-  string addr = 2;
-}
+// message RegisterRequest {
+//   uint32 id = 1;
+//   string addr = 2;
+// }
 
-message RegisterReply {
-  bool success = 1;
-  uint32 leaderID = 2;
-  uint32 leaderAddr = 3;
-}
+// message RegisterReply {
+//   bool success = 1;
+//   uint32 leaderID = 2;
+//   uint32 leaderAddr = 3;
+// }
 
 message LogEntry {
   uint32 term = 1;
