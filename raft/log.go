@@ -34,9 +34,11 @@ func NewCommandLog() CommandLog {
 	}
 }
 
+// Last Entry in the Log
 func (l *CommandLog) Last() *LogEntry {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+
 	if n := len(l.log); n > 0 {
 		return &l.log[n-1]
 	}
@@ -56,6 +58,7 @@ func (l *CommandLog) Has(term uint32, index uint32) bool {
 	return false
 }
 
+// AddEntries add new entries to the log
 func (l *CommandLog) AddEntries(entries *[]LogEntry) bool {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -68,6 +71,7 @@ func (l *CommandLog) AddEntries(entries *[]LogEntry) bool {
 func (l *CommandLog) Append(payload []byte) (*LogEntry, *LogEntry) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+
 	prevLogEntry := l.log[len(l.log)-1]
 	l.Index++
 	e := LogEntry{l.Term, l.Index, payload}
