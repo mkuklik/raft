@@ -49,13 +49,18 @@ type State struct {
 	LeaderID int
 }
 
-func NewState() State {
+func NewState(nPeers int) State {
 	return State{
 		PersistantState{
-			VotedFor: -1,
+			CurrentTerm: 0,
+			VotedFor:    -1,
+			Log:         make(map[LogIndex]LogEntry),
 		},
 		VolatileState{},
-		LeaderState{},
+		LeaderState{
+			make([]uint32, nPeers), // TODO initialized to leader last log index + 1
+			make([]uint32, nPeers), // TODO initialized to 0, increases monotonically
+		},
 		-1, // LeaderID
 	}
 }

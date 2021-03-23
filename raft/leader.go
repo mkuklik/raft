@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
+	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -58,6 +60,7 @@ func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntr
 
 func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb.AppendEntriesRequest) {
 	client := node.clients[id]
+	log.Infof("sending AppendEntries to %d, %s", id, req.String())
 	reply, err := (*client).AppendEntries(ctx, req)
 	if err != nil {
 		st, ok := status.FromError(err)
@@ -65,18 +68,17 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			log.Errorf("Heartbeat to %s due to, %s", node.config.Peers[id], st.Message())
 		}
 	} else {
+		log.Infof("reply to AppendEntries from %d, (term %d, success %v", id, reply.Term, reply.Success)
 		if reply.Term > node.state.CurrentTerm {
 			// switch to follower
 			node.state.CurrentTerm = reply.Term
 			node.SwitchTo(Follower)
-		} else {
-			if !reply.Success {
-				// If AppendEntries fails because of log inconsistency:
-				// decrement nextIndex and retry (§5.3)
-				if id > 0 {
-					node.state.NextIndex[id]-- // TODO lock
-					go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
-				}
+		} else if !reply.Success {
+			// If AppendEntries fails because of log inconsistency:
+			// decrement nextIndex and retry (§5.3)
+			if id > 0 {
+				node.state.NextIndex[id]-- // TODO lock
+				go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
 			}
 		}
 	}
@@ -167,6 +169,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 			heartBeatTimer.Stop()
 			return
 		case <-heartBeatTimer.C:
+			log.Infof("Leader timer")
 			// node.outboundLogEntriesLock.Lock()
 			for id := range node.clients {
 				if id != int(node.nodeID) { // skip candidate/leader
@@ -184,4 +187,18 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 		default:
 		}
 	}
+}
+
+func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+	// ???????
+	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
+}
+
+func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	// ?????
+	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
+}
+
+func (node *RaftNode) InstallSnapshotLeader(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }

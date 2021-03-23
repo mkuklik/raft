@@ -18,50 +18,49 @@ import (
 // • If election timeout elapses without receiving AppendEntries
 // RPC from current leader or granting vote to candidate: convert to candidate
 
-func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
-	if node.nodeStatus == Candidate {
-		// If AppendEntries RPC received from new leader: convert to follower
-		// TODO lock here
-		node.state.LeaderID = int(msg.LeaderId)
-		node.SwitchTo(Follower)
-	}
-
-	// FOLLOWER
+func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+	log.Infof("received AppendEntries from %d", ctx.Value(NodeIDKey))
 
 	// Receiver implementation:
 	// 1. Reply false if term < currentTerm (§5.1)
 	if msg.Term < node.state.CurrentTerm {
+		log.Infof("replied false to AppendEntries from %d; msg.Term %d, currentTerm %d", ctx.Value(NodeIDKey), msg.Term, node.state.CurrentTerm)
 		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 	}
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
-	if _, ok := node.state.Log[logIndex(msg.PrevLogTerm, msg.PrevLogIndex)]; !ok {
-		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
-	}
-
-	// 3. If an existing entry conflicts with a new one (same index
-	// 	but different terms), delete the existing entry and all that
-	// 	follow it (§5.3)
-
-	// TODO check conflict
-
-	// 4. Append any new entries not already in the log
-	var indexLastNewEntry uint32
-	for _, entry := range msg.Entries {
-		inx := logIndex(entry.Term, entry.Index)
-		if _, ok := node.state.Log[inx]; !ok {
-			node.state.Log[inx] = LogEntry{entry.Term, entry.Index, entry.Payload}
-			indexLastNewEntry = entry.Index
+	if len(msg.Entries) > 0 {
+		if _, ok := node.state.Log[logIndex(msg.PrevLogTerm, msg.PrevLogIndex)]; !ok {
+			log.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
+			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 		}
-	}
 
-	// 5. If leaderCommit > commitIndex, set commitIndex =
-	// 	min(leaderCommit, index of last new entry)
-	if msg.LeaderCommit > node.state.CommitIndex {
-		if msg.LeaderCommit < indexLastNewEntry {
-			node.state.CommitIndex = msg.LeaderCommit
-		} else {
-			node.state.CommitIndex = indexLastNewEntry
+		// 3. If an existing entry conflicts with a new one (same index
+		// 	but different terms), delete the existing entry and all that
+		// 	follow it (§5.3)
+
+		// TODO check conflict !!!
+
+		// 4. Append any new entries not already in the log
+		var indexLastNewEntry uint32
+		for _, entry := range msg.Entries {
+			inx := logIndex(entry.Term, entry.Index)
+			if _, ok := node.state.Log[inx]; !ok {
+				node.state.Log[inx] = LogEntry{entry.Term, entry.Index, entry.Payload}
+				indexLastNewEntry = entry.Index
+			}
+		}
+
+		// ??? should 5. be also processed on empty heartbeat ???? !!!!!!!!
+
+		// 5. If leaderCommit > commitIndex, set commitIndex =
+		// 	min(leaderCommit, index of last new entry)
+		if msg.LeaderCommit > node.state.CommitIndex {
+			if msg.LeaderCommit < indexLastNewEntry {
+				node.state.CommitIndex = msg.LeaderCommit
+			} else {
+				node.state.CommitIndex = indexLastNewEntry
+			}
 		}
 	}
 
@@ -69,7 +68,7 @@ func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRe
 
 	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 }
-func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
 	log.Infof("recieved vote request from %s", ctx.Value(AddressKey).(net.Addr).String())
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -89,7 +88,7 @@ func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteReques
 }
 
 // InstallSnapshot install snapshot
-func (node *RaftNode) InstallSnapshot(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshotFollower(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }
 
@@ -99,13 +98,16 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 	node.ResetElectionTimer()
 
 	for {
+		// log.Infof("Follower Loop")
 		select {
 		case <-ctx.Done():
 			log.Infof("Exiting Follower")
 			return
 		// reset election timer
 		case <-node.electionTimeoutTimer.C:
+			log.Infof("Follower timer")
 			node.SwitchTo(Candidate)
+			return
 		default:
 		}
 	}

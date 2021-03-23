@@ -8,13 +8,16 @@ import (
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
+	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 var ContextKey string
 
 const AddressKey string = "address"
+const NodeIDKey string = "nodeID"
 
 type ClinetNMessage struct {
 	Client  *client
@@ -24,8 +27,9 @@ type ClinetNMessage struct {
 type RaftNode struct {
 	raftpb.UnimplementedRaftServer
 
-	config *Config
-	nodeID uint32
+	config   *Config
+	nodeID   uint32
+	revPeers map[string]uint32
 
 	nodeStatus NodeStatus
 	state      State
@@ -58,20 +62,26 @@ type RaftNode struct {
 }
 
 func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
-	NPeers := len(config.Peers)
+	nPeers := len(config.Peers)
 	rand.Seed(time.Now().Unix())
-	log := NewCommandLog()
+	commandLog := NewCommandLog()
+	revPeers := make(map[string]uint32, nPeers)
+	for i, p := range config.Peers {
+		revPeers[p] = uint32(i)
+	}
+	log.Infof("Raft NodeID %d", nodeID)
 	return RaftNode{
 		raftpb.UnimplementedRaftServer{},
 		config,
 		nodeID,
+		revPeers,
 		Follower,
-		NewState(),
+		NewState(nPeers),
 		sm,
-		&log,
+		&commandLog,
 		nil, // leader
-		make([]*grpc.ClientConn, NPeers),
-		make([]*raftpb.RaftClient, NPeers),
+		make([]*grpc.ClientConn, nPeers),
+		make([]*raftpb.RaftClient, nPeers),
 		make(map[string]uint32),
 		make(map[string]uint32),
 		make(chan interface{}),
@@ -84,6 +94,11 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
 
 func (node *RaftNode) SwitchTo(to NodeStatus) {
 	node.switchChan <- to
+}
+
+func (node *RaftNode) NewElectionTimer() *time.Timer {
+	tmp := node.config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
+	return time.NewTimer(tmp)
 }
 
 func (node *RaftNode) ResetElectionTimer() {
@@ -127,7 +142,7 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 	}
 }
 
-func (node *RaftNode) connectToPeer(id uint32, serverAddr string) {
+func (node *RaftNode) connectToPeer(ctx context.Context, id uint32, serverAddr string) {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithStatsHandler(&serverStats{node, "dialer"}),
@@ -142,41 +157,39 @@ func (node *RaftNode) connectToPeer(id uint32, serverAddr string) {
 	node.conns[id] = conn
 	client := raftpb.NewRaftClient(conn)
 	node.clients[id] = &client
+
+	// reply, err := client.Register(ctx, &raftpb.RegisterRequest{Id: node.nodeID, Addr: node.addr})
+	// if err != nil {
+	// 	log.Errorf("failed register with %s, %s", serverAddr, err.Error())
+	// } else {
+	// 	if !reply.Success {
+	// 		log.Errorf("failed register with %s, %s", serverAddr, err.Error())
+	// 	}
+	// }
+
 }
 
-func (node *RaftNode) connectToPeers(selfAddr string) {
+func (node *RaftNode) connectToPeers(ctx context.Context, selfAddr string) {
 	for id, addr := range node.config.Peers {
 		if id != int(node.nodeID) { // skip candidate/leader
-			node.connectToPeer(uint32(id), addr)
+			node.connectToPeer(ctx, uint32(id), addr)
 		}
 	}
 }
 
 func (node *RaftNode) Run(ctx context.Context, addr string) {
-	go node.runListener(addr)
-	node.connectToPeers(addr)
+	go node.runListener(ctx, addr)
+	node.connectToPeers(ctx, addr)
 	go node.mainLoop(ctx)
 	node.SwitchTo(Follower)
 }
 
-// func (m *RaftNode) RegisterClient(c *client) {
-// 	if _, exists := m.clients[c.addr]; !exists {
-// 		m.clients[c.addr] = c
-// 	}
-// 	log.Debugf("Registered client, %s at %s", c.name, c.addr)
-// }
-
-// func (m *RaftNode) DeregisterClinet(c *client) {
-// 	if _, exists := m.clients[c.addr]; exists {
-// 		delete(m.clients, c.addr)
-// 	}
-// 	c.close()
-// 	log.Infof("Deregistered client, %s at %s", c.name, c.addr)
-// }
-
 // runListener run listener to incoming traffic
-func (n *RaftNode) runListener(addr string) {
-	l, err := net.Listen("tcp", addr)
+func (n *RaftNode) runListener(ctx context.Context, addr string) {
+	// l, err := net.Listen("tcp", addr)
+	var lc net.ListenConfig
+	l, err := lc.Listen(ctx, "tcp", addr)
+
 	if err != nil {
 		log.Fatalf("failed to listen on %s, %s", addr, err.Error())
 		return
@@ -189,4 +202,40 @@ func (n *RaftNode) runListener(addr string) {
 	if err != nil {
 		log.Fatal()
 	}
+}
+
+func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+	switch node.nodeStatus {
+	case Follower:
+		return node.AppendEntriesFollower(ctx, msg)
+	case Candidate:
+		return node.AppendEntriesCandidate(ctx, msg)
+	case Leader:
+		return node.AppendEntriesLeader(ctx, msg)
+	}
+	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
+}
+
+func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	switch node.nodeStatus {
+	case Follower:
+		return node.RequestVoteFollower(ctx, msg)
+	case Candidate:
+		return node.RequestVoteCandidate(ctx, msg)
+	case Leader:
+		return node.RequestVoteLeader(ctx, msg)
+	}
+	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
+}
+
+func (node *RaftNode) InstallSnapshot(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+	switch node.nodeStatus {
+	case Follower:
+		return node.InstallSnapshotFollower(ctx, msg)
+	case Candidate:
+		return node.InstallSnapshotCandidate(ctx, msg)
+	case Leader:
+		return node.InstallSnapshotLeader(ctx, msg)
+	}
+	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
 }

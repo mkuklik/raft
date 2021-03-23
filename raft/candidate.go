@@ -5,7 +5,9 @@ import (
 	"sync"
 
 	"github.com/mkuklik/raft/raftpb"
+	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -13,6 +15,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	log.Infof("Switching to Candidate and starting election")
 
 	node.ResetElectionTimer()
+	// t := node.NewElectionTimer()
 
 	// vote for yourself
 	node.state.CurrentTerm++
@@ -33,7 +36,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			tx, cancel := context.WithTimeout(ctx, node.config.ElectionTimeout)
 			defer cancel()
 
-			go func(c *raftpb.RaftClient) {
+			go func(id int, c *raftpb.RaftClient) {
 				log.Infof("requesting vote from %d", id)
 				resp, err := (*c).RequestVote(tx, req)
 				if err != nil {
@@ -51,7 +54,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 						log.Infof("server %d voted NO", id)
 					}
 				}
-			}(client)
+			}(id, client)
 		}
 	}
 
@@ -59,7 +62,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			node.StopElectionTimer()
+			// node.StopElectionTimer()
 			return
 		case <-vote:
 			yea++
@@ -69,10 +72,30 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 				return
 			}
 		case <-node.electionTimeoutTimer.C:
+			// case <-t.C:
 			// start new election
+			log.Infof("election timout")
 			node.SwitchTo(Candidate)
 			return
 		default:
 		}
 	}
+}
+
+func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+	// If AppendEntries RPC received from new leader: convert to follower
+
+	// TODO
+
+	node.state.LeaderID = int(msg.LeaderId)
+	node.SwitchTo(Follower)
+	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil // ????
+}
+
+func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
+}
+
+func (node *RaftNode) InstallSnapshotCandidate(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }

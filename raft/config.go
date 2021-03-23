@@ -32,7 +32,7 @@ func NewConfig() Config {
 		Bootstrap:             "",
 		MaxConnectionAttempts: 10,
 		ElectionTimeout:       5 * time.Second, //50 * time.Millisecond,
-		HeartBeat:             3 * time.Second, //10 * time.Millisecond,
+		HeartBeat:             2 * time.Second, //10 * time.Millisecond,
 		MTBF:                  24 * 30 * 3 * time.Hour,
 	}
 }
