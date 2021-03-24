@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
@@ -15,6 +16,8 @@ import (
 
 type RaftNode struct {
 	raftpb.UnimplementedRaftServer
+
+	Logger *log.Entry
 
 	config   *Config
 	nodeID   uint32
@@ -34,10 +37,12 @@ type RaftNode struct {
 	electionTimeoutTimer *time.Timer
 }
 
-func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
+func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) RaftNode {
 	nPeers := len(config.Peers)
 	rand.Seed(time.Now().Unix())
-	commandLog := NewCommandLog()
+
+	commandLog := NewCommandLog(file)
+
 	revPeers := make(map[string]uint32, nPeers)
 	for i, p := range config.Peers {
 		revPeers[p] = uint32(i)
@@ -45,6 +50,7 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine) RaftNode {
 	log.Infof("Raft NodeID %d", nodeID)
 	return RaftNode{
 		raftpb.UnimplementedRaftServer{},
+		log.NewEntry(log.StandardLogger()),
 		config,
 		nodeID,
 		revPeers,
@@ -71,12 +77,12 @@ func (node *RaftNode) NewElectionTimer() *time.Timer {
 func (node *RaftNode) ResetElectionTimer() {
 	tmp := node.config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
 	node.electionTimeoutTimer.Reset(tmp)
-	log.Infof("Election timer set to %s", tmp.String())
+	node.Logger.Infof("Election timer set to %s", tmp.String())
 }
 
 func (node *RaftNode) StopElectionTimer() {
 	node.electionTimeoutTimer.Stop()
-	log.Infof("Election timer stopped")
+	node.Logger.Infof("Election timer stopped")
 }
 
 func (node *RaftNode) mainLoop(parentCtx context.Context) {
@@ -94,12 +100,19 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 			}
 			node.nodeStatus = s
 			ctx, cancel = context.WithCancel(parentCtx)
+
+			node.Logger = log.WithFields(log.Fields{"state": NodeStatusMap[s], "term": node.state.CurrentTerm})
+
 			switch s {
 			case Leader:
 				go node.RunLeader(ctx)
+
 			case Candidate:
 				go node.RunCandidate(ctx)
+
 			case Follower:
+				node.state.VotedFor = -1
+
 				go node.RunFollower(ctx)
 			default:
 				log.Fatal("unsupported node status, %d", s)
@@ -119,7 +132,7 @@ func (node *RaftNode) connectToPeer(ctx context.Context, id uint32, serverAddr s
 		serverAddr,
 		opts...)
 	if err != nil {
-		log.Errorf("Dial failed, %s", err.Error())
+		node.Logger.Errorf("Dial failed, %s", err.Error())
 	}
 	node.conns[id] = conn
 	client := raftpb.NewRaftClient(conn)
@@ -139,6 +152,16 @@ func (node *RaftNode) Run(ctx context.Context, addr string) {
 	node.connectToPeers(ctx, addr)
 	go node.mainLoop(ctx)
 	node.SwitchTo(Follower)
+}
+
+// checkCommitIndex
+func (node *RaftNode) checkCommitIndex() {
+	// If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+	if node.state.CommitIndex > node.state.LastApplied {
+		// TODO lock
+		node.state.LastApplied++
+		node.sm.Apply(node.state.LastApplied)
+	}
 }
 
 // runListener run listener to incoming traffic

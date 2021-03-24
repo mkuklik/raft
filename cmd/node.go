@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -33,6 +34,8 @@ func main() {
 	flag.String("db", "pg", "database backend: pg")
 	addr := flag.String("addr", ":1234", "address")
 	flag.String("bootstrap", "", "address to bootstrap cluster")
+	logFile := flag.String("logfile", "", "file where log entries are persisted")
+	clean := flag.Bool("clean", false, "start clean, i.e. new log file etc.")
 	configFile := flag.String("config", "", "config file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -63,8 +66,32 @@ func main() {
 		log.Fatalf("node address, %s, is not in a peer set", *addr)
 	}
 
+	// logging
+	log.SetLevel(log.DebugLevel)
+
+	// LogEntry filename
+	filepath := *logFile
+	if *logFile == "" {
+		filepath = fmt.Sprintf("logfile.%d.raft", nodeID)
+	}
+
+	if *clean {
+		// delete log file
+		err := os.Remove(filepath)
+		if err != nil {
+			log.Fatalf("failed to clean log files, %s", err.Error())
+		}
+	}
+
+	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		log.Fatalf("can't create log file %s, %e", *logFile, err.Error())
+	}
+	log.Infof("opened logfile %s", filepath)
+	defer file.Close()
+
 	sm := StateM{} // Some state machine
-	r := raft.NewRaftNode(&config, uint32(nodeID), sm)
+	r := raft.NewRaftNode(&config, uint32(nodeID), sm, file)
 
 	termChan := make(chan os.Signal)
 	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)

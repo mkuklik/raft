@@ -5,7 +5,6 @@ import (
 	"net"
 
 	pb "github.com/mkuklik/raft/raftpb"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,12 +18,18 @@ import (
 // RPC from current leader or granting vote to candidate: convert to candidate
 
 func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
-	log.Infof("received AppendEntries from %d", ctx.Value(NodeIDKey))
+	node.Logger.Infof("received AppendEntries from %d", ctx.Value(NodeIDKey))
+
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+	}
 
 	// Receiver implementation:
 	// 1. Reply false if term < currentTerm (§5.1)
 	if msg.Term < node.state.CurrentTerm {
-		log.Infof("replied false to AppendEntries from %d; msg.Term %d, currentTerm %d", ctx.Value(NodeIDKey), msg.Term, node.state.CurrentTerm)
+		node.Logger.Infof("replied false to AppendEntries from %d; msg.Term %d, currentTerm %d", ctx.Value(NodeIDKey), msg.Term, node.state.CurrentTerm)
 		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 	}
 
@@ -34,7 +39,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 		// whose term matches prevLogTerm (§5.3)
 		if !node.clog.Has(msg.PrevLogTerm, msg.PrevLogIndex) {
-			log.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
+			node.Logger.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
 			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 		}
 
@@ -50,7 +55,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 			tmp[i] = LogEntry{entry.Term, entry.Index, entry.Payload}
 		}
 		if !node.clog.AddEntries(&tmp) {
-			log.Infof("replied false to AppendEntries from %d; 4.", ctx.Value(NodeIDKey))
+			node.Logger.Infof("replied false to AppendEntries from %d; 4.", ctx.Value(NodeIDKey))
 			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 		}
 	}
@@ -69,43 +74,57 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 
 	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 }
+
 func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
-	log.Infof("recieved vote request from %s", ctx.Value(AddressKey).(net.Addr).String())
+	node.Logger.Infof("recieved vote request from %s", ctx.Value(AddressKey).(net.Addr).String())
+
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if msg.Term < node.state.CurrentTerm {
-		log.Infof("voted NO (1)")
+		node.Logger.Debugf("voted NO (1)")
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 	}
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
 	// least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 	if (node.state.VotedFor < 0 || node.state.VotedFor == int(msg.CandidateId)) &&
 		logIndex(msg.LastLogTerm, msg.LastLogIndex) >= LogIndex(node.state.CommitIndex) { // ??? Doube check
-		log.Infof("voted YES")
+		node.Logger.Debugf("voted YES")
+		node.state.VotedFor = int(msg.CandidateId)
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: true}, nil
 	}
-	log.Infof("voted NO (3)")
+	node.Logger.Debugf("voted NO (3)")
 	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 }
 
 // InstallSnapshot install snapshot
-func (node *RaftNode) InstallSnapshotFollower(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshotFollower(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+	}
+
 	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }
 
 func (node *RaftNode) RunFollower(ctx context.Context) {
-	log.Infof("Starting as Follower")
+	node.Logger.Infof("Starting as Follower")
 
 	node.ResetElectionTimer()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("cancelled RunFollower")
+			node.Logger.Debugf("cancelled RunFollower")
 			return
 		// reset election timer
 		case <-node.electionTimeoutTimer.C:
-			log.Infof("Follower timer")
+			node.Logger.Debugf("Follower timer")
 			node.SwitchTo(Candidate)
 			return
 			// default:

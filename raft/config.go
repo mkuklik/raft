@@ -25,6 +25,9 @@ type Config struct {
 	// MTBF is the average time between failures for a single server.
 	// Typical server MTBFs are several months or more, which easily satisfies the timing requirement.
 	MTBF time.Duration
+
+	// Path & filename of file with log entries
+	LogFile string
 }
 
 func NewConfig() Config {

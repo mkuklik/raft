@@ -6,13 +6,12 @@ import (
 
 	"github.com/mkuklik/raft/raftpb"
 	pb "github.com/mkuklik/raft/raftpb"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func (node *RaftNode) RunCandidate(ctx context.Context) {
-	log.Infof("Switching to Candidate and starting election")
+	node.Logger.Infof("Switching to Candidate and starting election")
 
 	node.ResetElectionTimer()
 	// t := node.NewElectionTimer()
@@ -47,21 +46,21 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			defer cancel()
 
 			go func(id int, c *raftpb.RaftClient) {
-				log.Infof("requesting vote from %d", id)
+				node.Logger.Infof("requesting vote from %d", id)
 				resp, err := (*c).RequestVote(tx, req)
 				if err != nil {
 					st, ok := status.FromError(err)
 					if ok {
-						log.Errorf("RequestVote to %s due to, %s", node.config.Peers[id], st.Message())
+						node.Logger.Errorf("RequestVote to %s due to, %s", node.config.Peers[id], st.Message())
 					}
 				} else {
 					if resp.VoteGranted {
-						log.Infof("server %d voted YES", id)
+						node.Logger.Infof("server %d voted YES", id)
 						lock.Lock()
 						vote <- true
 						lock.Unlock()
 					} else {
-						log.Infof("server %d voted NO", id)
+						node.Logger.Infof("server %d voted NO", id)
 					}
 				}
 			}(id, client)
@@ -76,7 +75,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 			return
 		case <-vote:
 			yea++
-			log.Infof("Checking majority, %d >= %d", yea, len(node.config.Peers)/2)
+			node.Logger.Infof("Checking majority, %d >= %d", yea, len(node.config.Peers)/2)
 			if yea >= len(node.config.Peers)/2 {
 				node.SwitchTo(Leader)
 				return
@@ -84,7 +83,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 		case <-node.electionTimeoutTimer.C:
 			// case <-t.C:
 			// start new election
-			log.Infof("election timout")
+			node.Logger.Infof("election timout")
 			node.SwitchTo(Candidate)
 			return
 			// default:
@@ -113,11 +112,22 @@ func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.Append
 }
 
 func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+	}
+
 	// candidate votes for itself
 	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 }
 
-func (node *RaftNode) InstallSnapshotCandidate(context.Context, *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshotCandidate(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+	}
 
 	// TODO
 

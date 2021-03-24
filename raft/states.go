@@ -8,6 +8,12 @@ const (
 	Leader
 )
 
+var NodeStatusMap = map[NodeStatus]string{
+	Follower:  "F",
+	Candidate: "C",
+	Leader:    "L",
+}
+
 type StateMachineEvent interface{}
 type StateMachine interface {
 	Apply(event StateMachineEvent) bool
@@ -63,4 +69,9 @@ func NewState(nPeers int) State {
 		},
 		-1, // LeaderID
 	}
+}
+
+func (s *State) UpdateCommitIndex(inx uint32) {
+	// TODO lock
+	s.CommitIndex = inx
 }
