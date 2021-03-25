@@ -20,11 +20,7 @@ type StateMachine interface {
 	Current() interface{}
 }
 
-type LogIndex uint64
-
-func logIndex(term, index uint32) LogIndex {
-	return LogIndex(term)<<32 + LogIndex(index)
-}
+type LogIndex uint32
 
 // Persistent state on all servers:
 type PersistantState struct {

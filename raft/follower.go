@@ -102,7 +102,7 @@ func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVo
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
 	// least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 	if (node.state.VotedFor < 0 || node.state.VotedFor == int(msg.CandidateId)) &&
-		logIndex(msg.LastLogTerm, msg.LastLogIndex) >= LogIndex(node.state.CommitIndex) { // ??? Doube check
+		msg.LastLogIndex >= node.state.CommitIndex { // ??? Doube check
 		node.Logger.Debugf("voted YES")
 		node.state.VotedFor = int(msg.CandidateId)
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: true}, nil

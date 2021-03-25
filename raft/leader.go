@@ -105,6 +105,7 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			if node.state.NextIndex[id] > 0 {
 				node.state.NextIndex[id]-- // TODO lock
 			}
+			// do we repeat it indefinitely ???
 			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
 		}
 	}
