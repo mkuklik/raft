@@ -41,19 +41,39 @@ of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5
  state machine and returns the result of that execution to the client. If followers crash
  or run slowly, or if network packets are lost, the leader retries Append- Entries RPCs
  indefinitely (even after it has responded to the client) until all followers eventually
- store all log en- tries.
+ store all log entries.
 */
 
 func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntriesRequest {
-	// TODO
+	// • If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
+	// 		• If successful: update nextIndex and matchIndex for follower (§5.3)
+	entries := []*raftpb.LogEntry{}
+	var prevLogIndex uint32
+	var prevLogTerm uint32
+
+	if node.state.CommitIndex >= node.state.NextIndex[id] {
+		for _, e := range node.clog.GetRange(node.state.NextIndex[id], node.state.CommitIndex) {
+			tmp := raftpb.LogEntry{
+				Term:    e.Term,
+				Index:   e.Index,
+				Payload: e.Payload,
+			}
+			entries = append(entries, &tmp)
+		}
+		prev := node.clog.Get(node.state.NextIndex[id] - 1)
+		prevLogIndex = prev.Index
+		prevLogTerm = prev.Term
+	}
+
 	req := &raftpb.AppendEntriesRequest{
 		Term:         node.state.CurrentTerm,
 		LeaderId:     node.nodeID,
-		PrevLogIndex: 0,                    // ???
-		PrevLogTerm:  0,                    // ???
-		Entries:      []*raftpb.LogEntry{}, // ????
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  prevLogTerm,
+		Entries:      entries,
 		LeaderCommit: node.state.CommitIndex,
 	}
+
 	return req
 }
 
@@ -72,13 +92,20 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			// switch to follower
 			node.state.CurrentTerm = reply.Term
 			node.SwitchTo(Follower)
-		} else if !reply.Success {
+		}
+
+		if reply.Success && len(req.Entries) > 0 {
+			// If successful: update nextIndex and matchIndex for follower (§5.3)
+			node.state.MatchIndex[id] = req.Entries[len(req.Entries)-1].Index
+			node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
+
+		} else if !reply.Success && len(req.Entries) > 0 {
 			// If AppendEntries fails because of log inconsistency:
 			// decrement nextIndex and retry (§5.3)
-			if id > 0 {
+			if node.state.NextIndex[id] > 0 {
 				node.state.NextIndex[id]-- // TODO lock
-				go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
 			}
+			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
 		}
 	}
 }
@@ -157,6 +184,17 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 
 func (node *RaftNode) RunLeader(ctx context.Context) {
 	node.Logger.Infof("Starting as Leader")
+
+	// INITIALIZATION
+	// The leader maintains a nextIndex for each follower, which is the
+	// index of the next log entry the leader will send to that follower.
+	// When a leader first comes to power, it initializes all nextIndex values
+	// to the index just after the last one in its log (11 in Figure 7).
+	// TODO lock
+	for i := range node.state.NextIndex {
+		node.state.NextIndex[i] = node.state.CommitIndex + 1
+		node.state.MatchIndex[i] = 0
+	}
 
 	// Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server;
 	// repeat during idle periods to prevent election timeouts (§5.2)

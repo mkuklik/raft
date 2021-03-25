@@ -42,6 +42,9 @@ message AppendEntriesRequest {
 message AppendEntriesReply {
  uint32 term = 1; // currentTerm, for leader to update itself
  bool success = 2;  // true if follower contained entry matching prevLogIndex and prevLogTerm
+//  // this is only used when success is false due to inconsistencies; then leader can decide which entries to
+//  // send or whether it should send a snapshot in case follower is too far behind, e.g. 
+//  uint32 lastLogIndex = 3; // index of the last log entry in follower's log
 }
 
 

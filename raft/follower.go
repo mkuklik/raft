@@ -40,7 +40,11 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		// whose term matches prevLogTerm (§5.3)
 		if !node.clog.Has(msg.PrevLogTerm, msg.PrevLogIndex) {
 			node.Logger.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
-			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
+			return &pb.AppendEntriesReply{
+				Term:    node.state.CurrentTerm,
+				Success: false,
+				// LastLogIndex: node.clog.Last().Index,
+			}, nil
 		}
 
 		// 3. If an existing entry conflicts with a new one (same index
@@ -56,7 +60,10 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		}
 		if !node.clog.AddEntries(&tmp) {
 			node.Logger.Infof("replied false to AppendEntries from %d; 4.", ctx.Value(NodeIDKey))
-			return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
+			return &pb.AppendEntriesReply{
+				Term:    node.state.CurrentTerm,
+				Success: false,
+			}, nil
 		}
 	}
 
@@ -72,7 +79,10 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 
 	node.ResetElectionTimer()
 
-	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
+	return &pb.AppendEntriesReply{
+		Term:    node.state.CurrentTerm,
+		Success: true,
+	}, nil
 }
 
 func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
@@ -114,6 +124,8 @@ func (node *RaftNode) InstallSnapshotFollower(ctx context.Context, msg *pb.Insta
 
 func (node *RaftNode) RunFollower(ctx context.Context) {
 	node.Logger.Infof("Starting as Follower")
+
+	node.state.VotedFor = -1
 
 	node.ResetElectionTimer()
 

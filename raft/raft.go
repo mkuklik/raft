@@ -101,7 +101,7 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 			node.nodeStatus = s
 			ctx, cancel = context.WithCancel(parentCtx)
 
-			node.Logger = log.WithFields(log.Fields{"state": NodeStatusMap[s], "term": node.state.CurrentTerm})
+			node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[s], "T": node.state.CurrentTerm})
 
 			switch s {
 			case Leader:
@@ -111,8 +111,6 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 				go node.RunCandidate(ctx)
 
 			case Follower:
-				node.state.VotedFor = -1
-
 				go node.RunFollower(ctx)
 			default:
 				log.Fatal("unsupported node status, %d", s)

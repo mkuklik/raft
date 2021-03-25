@@ -55,7 +55,7 @@ func NewCommandLog(file *os.File) CommandLog {
 		if e == io.EOF {
 			break
 		}
-		data.Set(logIndex(entry.Term, entry.Index), entry)
+		data.Set(entry.Index, entry)
 	}
 
 	return CommandLog{
@@ -88,7 +88,7 @@ func (this *CommandLog) Has(term uint32, index uint32) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	_, ok := this.log.Get(logIndex(term, index))
+	_, ok := this.log.Get(index)
 	return ok
 	// // change to map lookup
 	// for i := len(l.log); i >= 0; i++ {
@@ -137,4 +137,11 @@ func (this *CommandLog) Append(payload []byte) (*LogEntry, *LogEntry) {
 	// e := LogEntry{l.Term, l.Index, payload}
 	// l.log = append(l.log, e)
 	// return &prevLogEntry, &e
+}
+func (this *CommandLog) Get(inx uint32) *LogEntry {
+	return nil
+}
+
+func (this *CommandLog) GetRange(start, end uint32) []*LogEntry {
+	return []*LogEntry{}
 }

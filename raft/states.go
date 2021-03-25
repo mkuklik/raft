@@ -71,7 +71,13 @@ func NewState(nPeers int) State {
 	}
 }
 
-func (s *State) UpdateCommitIndex(inx uint32) {
-	// TODO lock
-	s.CommitIndex = inx
-}
+// func (s *State) UpdateCommitIndex(inx uint32) {
+// 	// TODO lock
+// 	s.CommitIndex = inx
+
+// }
+
+// func (s *State) GetCommitIndex() uint32 {
+// 	// TODO lock ???
+// 	return s.CommitIndex
+// }
