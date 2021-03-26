@@ -102,7 +102,7 @@ func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.Append
 		continues in candidate state.
 	*/
 	if msg.Term >= node.state.CurrentTerm {
-		node.state.LeaderID = int(msg.LeaderId)
+		node.state.LeaderID = msg.LeaderId
 		node.state.CurrentTerm = msg.Term
 		node.state.VotedFor = -1
 		node.SwitchTo(Follower)

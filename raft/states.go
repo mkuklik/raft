@@ -14,12 +14,6 @@ var NodeStatusMap = map[NodeStatus]string{
 	Leader:    "L",
 }
 
-type StateMachineEvent interface{}
-type StateMachine interface {
-	Apply(event StateMachineEvent) bool
-	Current() interface{}
-}
-
 type LogIndex uint32
 
 // Persistent state on all servers:
@@ -48,7 +42,7 @@ type State struct {
 	VolatileState
 	LeaderState
 
-	LeaderID int
+	LeaderID uint32
 }
 
 func NewState(nPeers int) State {
@@ -66,14 +60,3 @@ func NewState(nPeers int) State {
 		-1, // LeaderID
 	}
 }
-
-// func (s *State) UpdateCommitIndex(inx uint32) {
-// 	// TODO lock
-// 	s.CommitIndex = inx
-
-// }
-
-// func (s *State) GetCommitIndex() uint32 {
-// 	// TODO lock ???
-// 	return s.CommitIndex
-// }

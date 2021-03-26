@@ -2,9 +2,11 @@
 Raft implementation
 
 # TODO
-- (Reinitialized after election) nextIndex, matchIndex
-- 
-
+- load logs, persist log on append
+- persist log and persistant state when required
+- refactor states directly to RaftNode
+- snapshot
+- tests ???
 
 Sources:
 - https://github.com/etcd-io/etcd/blob/master/raft/README.md

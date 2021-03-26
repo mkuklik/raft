@@ -270,6 +270,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 	// to the index just after the last one in its log (11 in Figure 7).
 	// TODO lock
 	for i := range node.state.NextIndex {
+		// (Reinitialized after election)
 		node.state.NextIndex[i] = node.state.CommitIndex + 1
 		node.state.MatchIndex[i] = 0
 	}
