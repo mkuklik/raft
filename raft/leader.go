@@ -52,7 +52,11 @@ func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntr
 	var prevLogTerm uint32
 
 	if node.state.CommitIndex >= node.state.NextIndex[id] {
-		for _, e := range node.clog.GetRange(node.state.NextIndex[id], node.state.CommitIndex) {
+		tmp, err := node.clog.GetRange(node.state.NextIndex[id], node.state.CommitIndex)
+		if err != nil {
+			node.Logger.Fatalf("can't find index in the log") // TODO ???
+		}
+		for _, e := range tmp {
 			tmp := raftpb.LogEntry{
 				Term:    e.Term,
 				Index:   e.Index,
