@@ -43,7 +43,6 @@ type RaftNode struct {
 
 	signals chan Signal
 
-	// resetTimer chan is used to reset election timer
 	electionTimeoutTimer *time.Timer
 }
 
@@ -109,12 +108,12 @@ func (node *RaftNode) NewElectionTimer() *time.Timer {
 func (node *RaftNode) ResetElectionTimer() {
 	tmp := node.config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
 	node.electionTimeoutTimer.Reset(tmp)
-	node.Logger.Infof("Election timer set to %s", tmp.String())
+	node.Logger.Debugf("Election timer set to %s", tmp.String())
 }
 
 func (node *RaftNode) StopElectionTimer() {
 	node.electionTimeoutTimer.Stop()
-	node.Logger.Infof("Election timer stopped")
+	node.Logger.Debugf("Election timer stopped")
 }
 
 func (node *RaftNode) mainLoop(parentCtx context.Context) {
@@ -156,29 +155,7 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 				node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[node.nodeStatus], "T": node.state.CurrentTerm})
 			}
 
-		// case s := <-node.switchChan:
-
-		// 	if cancel != nil {
-		// 		cancel()
-		// 	}
-		// 	node.nodeStatus = s
-		// 	ctx, cancel = context.WithCancel(parentCtx)
-
-		// 	node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[s], "T": node.state.CurrentTerm})
-
-		// 	switch s {
-		// 	case Leader:
-		// 		go node.RunLeader(ctx)
-
-		// 	case Candidate:
-		// 		go node.RunCandidate(ctx)
-
-		// 	case Follower:
-		// 		go node.RunFollower(ctx)
-		// 	default:
-		// 		log.Fatal("unsupported node status, %d", s)
-		// 	}
-		default:
+			// default:
 		}
 	}
 }
@@ -208,31 +185,33 @@ func (node *RaftNode) connectToPeers(ctx context.Context, selfAddr string) {
 	}
 }
 
-func (node *RaftNode) Run(ctx context.Context, addr string) {
-	go node.runListener(ctx, addr)
-	node.connectToPeers(ctx, addr)
-	go node.mainLoop(ctx)
-	node.SwitchTo(Follower)
-}
-
 // runListener run listener to incoming traffic
 func (n *RaftNode) runListener(ctx context.Context, addr string) {
 	// l, err := net.Listen("tcp", addr)
 	var lc net.ListenConfig
 	l, err := lc.Listen(ctx, "tcp", addr)
-
 	if err != nil {
 		log.Fatalf("failed to listen on %s, %s", addr, err.Error())
 		return
 	}
 	defer l.Close()
 
-	server := grpc.NewServer(grpc.StatsHandler(&serverStats{n, "server"}))
+	opts := []grpc.ServerOption{
+		grpc.StatsHandler(&serverStats{n, "server"}),
+	}
+	server := grpc.NewServer(opts...)
 	raftpb.RegisterRaftServer(server, n)
 	err = server.Serve(l)
 	if err != nil {
-		log.Fatal()
+		log.Fatal(err)
 	}
+}
+
+func (node *RaftNode) Run(ctx context.Context, addr string) {
+	go node.runListener(ctx, addr)
+	node.connectToPeers(ctx, addr)
+	go node.mainLoop(ctx)
+	node.SwitchTo(Follower)
 }
 
 func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {

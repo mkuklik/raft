@@ -79,7 +79,7 @@ func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntr
 
 func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb.AppendEntriesRequest) {
 	client := node.clients[id]
-	node.Logger.Infof("sending AppendEntries to %d, %s", id, req.String())
+	node.Logger.Debugf("sending AppendEntries to %d, %s", id, req.String())
 	reply, err := (*client).AppendEntries(ctx, req)
 	if err != nil {
 		st, ok := status.FromError(err)
@@ -87,7 +87,7 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			node.Logger.Errorf("failed sending AppendEntries to %s due to, %s", node.config.Peers[id], st.Message())
 		}
 	} else {
-		node.Logger.Infof("reply to AppendEntries from %d, (term %d, success %v", id, reply.Term, reply.Success)
+		node.Logger.Debugf("reply to AppendEntries from %d, (term %d, success %v", id, reply.Term, reply.Success)
 		if reply.Term > node.state.CurrentTerm {
 			// switch to follower
 			node.state.CurrentTerm = reply.Term
@@ -303,7 +303,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 			}
 
 			heartBeatTimer.Reset(node.config.HeartBeat)
-		default:
+			// default:
 		}
 	}
 }

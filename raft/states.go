@@ -42,7 +42,7 @@ type State struct {
 	VolatileState
 	LeaderState
 
-	LeaderID uint32
+	LeaderID int
 }
 
 func NewState(nPeers int) State {
