@@ -14,6 +14,16 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+type Signal int
+
+const (
+	MatchIndexUpdate Signal = iota
+	CommitIndexUpdate
+	SwitchToFollower
+	SwitchToCandidate
+	SwitchToLeader
+)
+
 type RaftNode struct {
 	raftpb.UnimplementedRaftServer
 
@@ -31,13 +41,16 @@ type RaftNode struct {
 	conns   []*grpc.ClientConn
 	clients []*raftpb.RaftClient
 
-	switchChan chan NodeStatus
+	signals chan Signal
 
 	// resetTimer chan is used to reset election timer
 	electionTimeoutTimer *time.Timer
 }
 
 func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) RaftNode {
+
+	log.Infof("Raft NodeID %d", nodeID)
+
 	nPeers := len(config.Peers)
 	rand.Seed(time.Now().Unix())
 
@@ -47,7 +60,7 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) 
 	for i, p := range config.Peers {
 		revPeers[p] = uint32(i)
 	}
-	log.Infof("Raft NodeID %d", nodeID)
+
 	return RaftNode{
 		raftpb.UnimplementedRaftServer{},
 		log.NewEntry(log.StandardLogger()),
@@ -60,13 +73,32 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) 
 		&commandLog,
 		make([]*grpc.ClientConn, nPeers),
 		make([]*raftpb.RaftClient, nPeers),
-		make(chan NodeStatus),
+		make(chan Signal),
 		time.NewTimer(config.ElectionTimeout),
 	}
 }
 
+// checkCommittedEntries checks if there are new commited entries to be applied to the sate machine
+// 	If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+func (node *RaftNode) checkCommittedEntries() {
+
+	// TODO lock
+	for node.state.CommitIndex > node.state.LastApplied {
+		node.state.LastApplied++
+		node.sm.Apply(node.state.LastApplied)
+	}
+
+}
+
 func (node *RaftNode) SwitchTo(to NodeStatus) {
-	node.switchChan <- to
+	switch to {
+	case Follower:
+		node.signals <- SwitchToFollower
+	case Leader:
+		node.signals <- SwitchToLeader
+	case Candidate:
+		node.signals <- SwitchToCandidate
+	}
 }
 
 func (node *RaftNode) NewElectionTimer() *time.Timer {
@@ -94,27 +126,58 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 		select {
 		case <-parentCtx.Done():
 			break
-		case s := <-node.switchChan:
-			if cancel != nil {
-				cancel()
-			}
-			node.nodeStatus = s
-			ctx, cancel = context.WithCancel(parentCtx)
-
-			node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[s], "T": node.state.CurrentTerm})
-
+		case s := <-node.signals:
 			switch s {
-			case Leader:
-				go node.RunLeader(ctx)
+			case CommitIndexUpdate:
+				go node.checkCommittedEntries()
 
-			case Candidate:
-				go node.RunCandidate(ctx)
+			case MatchIndexUpdate:
+				go node.checkCommitIndex()
 
-			case Follower:
-				go node.RunFollower(ctx)
-			default:
-				log.Fatal("unsupported node status, %d", s)
+			case SwitchToCandidate, SwitchToFollower, SwitchToLeader:
+				if cancel != nil {
+					cancel()
+				}
+				ctx, cancel = context.WithCancel(parentCtx)
+
+				switch s {
+				case SwitchToLeader:
+					node.nodeStatus = Leader
+					go node.RunLeader(ctx)
+
+				case SwitchToCandidate:
+					node.nodeStatus = Candidate
+					go node.RunCandidate(ctx)
+
+				case SwitchToFollower:
+					node.nodeStatus = Follower
+					go node.RunFollower(ctx)
+				}
+				node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[node.nodeStatus], "T": node.state.CurrentTerm})
 			}
+
+		// case s := <-node.switchChan:
+
+		// 	if cancel != nil {
+		// 		cancel()
+		// 	}
+		// 	node.nodeStatus = s
+		// 	ctx, cancel = context.WithCancel(parentCtx)
+
+		// 	node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[s], "T": node.state.CurrentTerm})
+
+		// 	switch s {
+		// 	case Leader:
+		// 		go node.RunLeader(ctx)
+
+		// 	case Candidate:
+		// 		go node.RunCandidate(ctx)
+
+		// 	case Follower:
+		// 		go node.RunFollower(ctx)
+		// 	default:
+		// 		log.Fatal("unsupported node status, %d", s)
+		// 	}
 		default:
 		}
 	}
@@ -150,16 +213,6 @@ func (node *RaftNode) Run(ctx context.Context, addr string) {
 	node.connectToPeers(ctx, addr)
 	go node.mainLoop(ctx)
 	node.SwitchTo(Follower)
-}
-
-// checkCommitIndex
-func (node *RaftNode) checkCommitIndex() {
-	// If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
-	if node.state.CommitIndex > node.state.LastApplied {
-		// TODO lock
-		node.state.LastApplied++
-		node.sm.Apply(node.state.LastApplied)
-	}
 }
 
 // runListener run listener to incoming traffic

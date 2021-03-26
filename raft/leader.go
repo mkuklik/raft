@@ -96,8 +96,11 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 
 		if reply.Success && len(req.Entries) > 0 {
 			// If successful: update nextIndex and matchIndex for follower (§5.3)
+			// TODO lock
 			node.state.MatchIndex[id] = req.Entries[len(req.Entries)-1].Index
 			node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
+
+			node.signals <- MatchIndexUpdate
 
 		} else if !reply.Success && len(req.Entries) > 0 {
 			// If AppendEntries fails because of log inconsistency:
@@ -134,52 +137,126 @@ func (node *RaftNode) sendEmptyHeartBeat(ctx context.Context) {
 	}
 }
 
+// checkCommitIndex checks whether to increase CommitIndex
+//  If there exists an N such that N > commitIndex, a majority
+//  of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
+func (node *RaftNode) checkCommitIndex() {
+	T := len(node.clients)
+	majority := (T + 1) / 2
+
+	ci := node.state.CommitIndex + 1
+	for {
+		// check for majority
+		count := 0
+		for j := range node.clients {
+			if node.state.MatchIndex[j] >= ci {
+				count++
+			}
+		}
+		if count < majority {
+			ci--
+			break
+		}
+		ci++
+	}
+	// TODO LOCK
+	if ci > node.state.CommitIndex {
+		node.state.CommitIndex = ci
+		node.signals <- CommitIndexUpdate
+	}
+}
+
+// Once a leader has been elected, it begins servicing client requests. Each client
+// request contains a command to be executed by the replicated state machines.
+// The leader appends the command to its log as a new entry, then issues AppendEntries
+// RPCs in parallel to each of the other servers to replicate the entry. When the entry
+// has been safely replicated (as described below), the leader applies the entry to its
+// state machine and returns the result of that execution to the client.
+//
+// The leader decides when it is safe to apply a log entry to the state machines;
+// such an entry is called committed. Raft guarantees that committed entries are
+// durable and will eventually be executed by all of the available state machines.
+// A log entry is committed once the leader that created the entry has
+// replicated it on a majority of the servers (e.g., entry 7 in Figure 6).
+
 // AddLogEntry used by client to propagate log entry
 func (node *RaftNode) AddCommand(payload []byte) error {
 
+	N := len(node.clients)
+
+	// Add entry to local log and persist
+
 	prevLogEntry, newLogEntry := node.clog.Append(payload)
-	count := make(chan int, len(node.clients))
+
+	// replicate
+
+	ballotbox := make(chan bool, N)
+	defer close(ballotbox)
+
 	for _, client := range node.clients {
 		go func(c *raftpb.RaftClient) {
 			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancelfunc()
 
-			reply, err := (*c).AppendEntries(ctx, &raftpb.AppendEntriesRequest{
-				Term:         node.state.CurrentTerm,
-				LeaderId:     0,
-				PrevLogIndex: prevLogEntry.Index,
-				PrevLogTerm:  prevLogEntry.Term,
-				Entries: []*raftpb.LogEntry{
-					{
-						Term:    newLogEntry.Term,
-						Index:   newLogEntry.Index,
-						Payload: newLogEntry.Payload,
+			reply, err := (*c).AppendEntries(ctx,
+				&raftpb.AppendEntriesRequest{
+					Term:         node.state.CurrentTerm,
+					LeaderId:     node.nodeID,
+					PrevLogIndex: prevLogEntry.Index,
+					PrevLogTerm:  prevLogEntry.Term,
+					Entries: []*raftpb.LogEntry{
+						{
+							Term:    newLogEntry.Term,
+							Index:   newLogEntry.Index,
+							Payload: newLogEntry.Payload,
+						},
 					},
-				},
-				LeaderCommit: node.state.CommitIndex, // double check
-			})
+					LeaderCommit: node.state.CommitIndex, // double check
+				})
 			if err != nil {
-				// todo
+				node.Logger.Errorf("AppendEntries request failed, %s", err.Error())
+				ballotbox <- false
 			} else {
 				// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 				if reply.Term > node.state.CurrentTerm {
 					node.state.CurrentTerm = reply.Term
 					node.SwitchTo(Follower)
+					return
 				}
-				if reply.Success == true {
-					count <- 1
-				}
-				fmt.Println(reply) // todo
+				ballotbox <- reply.Success
 			}
 		}(client)
 	}
 
-	majority := true
-	if !majority {
-		return fmt.Errorf("failed to apply command")
+	yeas := 0
+	count := 0
+	passed := false
+	for {
+		select {
+		case v := <-ballotbox:
+			count++
+			if v {
+				yeas++
+			}
+			if yeas >= (N+1)/2 {
+				passed = true
+				break
+			}
+			// if count >= N {
+			// 	break
+			// }
+		}
 	}
-	// if majority apply entry
+
+	if !passed {
+		node.Logger.Debugf("replication failed to majority")
+		return fmt.Errorf("failed to process command")
+	}
+
+	node.Logger.Debugf("replication succeeded to majority")
+
 	node.sm.Apply(payload)
+
 	return nil
 }
 
