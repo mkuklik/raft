@@ -50,15 +50,21 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		// 3. If an existing entry conflicts with a new one (same index
 		// 	but different terms), delete the existing entry and all that
 		// 	follow it (§5.3)
-
-		// TODO check conflict !!!
+		for _, entry := range msg.Entries {
+			e := node.clog.Get(entry.Index)
+			if e != nil && e.Term != entry.Term {
+				node.Logger.Debugf("Term mismatch in log entry, index=%d, term local %d, wire %d",
+					entry.Index, e.Term, entry.Term)
+			}
+		}
 
 		// 4. Append any new entries not already in the log
 		tmp := make([]LogEntry, len(msg.Entries))
 		for i, entry := range msg.Entries {
 			tmp[i] = LogEntry{entry.Term, entry.Index, entry.Payload}
 		}
-		if !node.clog.AddEntries(&tmp) {
+
+		if err := node.clog.AddEntries(&tmp); err != nil {
 			node.Logger.Infof("replied false to AppendEntries from %d; 4.", ctx.Value(NodeIDKey))
 			return &pb.AppendEntriesReply{
 				Term:    node.state.CurrentTerm,

@@ -2,8 +2,10 @@ package raft
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -17,11 +19,6 @@ func init() {
 
 }
 
-// type Payloader interface {
-// 	encoding.BinaryMarshaler
-// 	encoding.BinaryUnmarshaler
-// }
-
 // LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 type LogEntry struct {
 	Term  uint32 // leader's term
@@ -32,8 +29,7 @@ type LogEntry struct {
 }
 
 type CommandLog struct {
-	data []LogEntry
-	// log     *orderedmap.OrderedMap
+	data    []LogEntry
 	Term    uint32
 	Index   uint32
 	lock    sync.Mutex
@@ -45,7 +41,6 @@ type CommandLog struct {
 func NewCommandLog(file *os.File) CommandLog {
 
 	data := make([]LogEntry, 0, 100)
-	// data := orderedmap.NewOrderedMap()
 
 	// load
 	buf := bufio.NewReader(file)
@@ -57,12 +52,10 @@ func NewCommandLog(file *os.File) CommandLog {
 		if e == io.EOF {
 			break
 		}
-		// data.Set(entry.Index, entry)
 		data = append(data, entry)
 	}
 
 	return CommandLog{
-		// make([]LogEntry, 0, 100),
 		data,
 		0,
 		0,
@@ -78,9 +71,6 @@ func (this *CommandLog) Last() *LogEntry {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	// if this.log.Len() > 0 {
-	// 	return this.log.Back().Value.(*LogEntry)
-	// }
 	if n := len(this.data); n > 0 {
 		return &this.data[n-1]
 	}
@@ -91,9 +81,6 @@ func (this *CommandLog) Has(term uint32, index uint32) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	// _, ok := this.log.Get(index)
-	// return ok
-	// change to map lookup
 	for i := len(this.data); i >= 0; i++ {
 		if e := this.data[i]; e.Index == index && e.Term == term {
 			return true
@@ -103,27 +90,49 @@ func (this *CommandLog) Has(term uint32, index uint32) bool {
 }
 
 // AddEntries add new entries to the log
-func (this *CommandLog) AddEntries(entries *[]LogEntry) bool {
+func (this *CommandLog) AddEntries(entries *[]LogEntry) error {
+	if len(*entries) == 0 {
+		return nil
+	}
+
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	// this.log.
+	if this.file != nil { // ??? do I need it
+		log.Fatal("file descriptor is missing")
+	}
 
-	// TODO add entries that don't exist and skip oen already there
-	return false
+	var index uint32
+	if this.Size() > 0 {
+		index = this.Last().Index + 1
+	}
+
+	for i, entry := range *entries {
+		if i == 0 {
+			index = entry.Index
+		} else if index != entry.Index {
+			return fmt.Errorf("inconsistent log index, previous %d, current %d", index-1, entry.Index)
+		}
+
+		this.data = append(this.data, entry)
+		err := this.encoder.Encode(entry)
+		if err != nil {
+			log.Fatal("failed to persist log entry,", err)
+		}
+		index++
+	}
+	// persist
+	err := this.file.Sync()
+	if err != nil {
+		log.Fatalf("failed flashing log file, %s", err.Error())
+	}
+	return nil
 }
 
 // Append add new payload as entry; index is automatically generated, log is persisted.
 func (this *CommandLog) Append(payload []byte) (prev *LogEntry, curr *LogEntry) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
-
-	// prevLogEntry := this.log.Back().Value.(LogEntry)
-	// newLogEntry := LogEntry{this.Term, this.Index, payload}
-
-	// this.log.Set(this.Index, newLogEntry)
-	// this.Index++
-	// last := this.log.Back().Value.(LogEntry)
 
 	if len(this.data) != 0 {
 		prev = &this.data[len(this.data)-1]
@@ -141,8 +150,10 @@ func (this *CommandLog) Append(payload []byte) (prev *LogEntry, curr *LogEntry) 
 		if err != nil {
 			log.Fatal("failed to persist log entry,", err)
 		}
-		this.file.Sync()
-		// todo flash file
+		err = this.file.Sync()
+		if err != nil {
+			log.Fatalf("failed flashing log file, %s", err.Error())
+		}
 	}
 
 	return prev, curr
@@ -150,6 +161,26 @@ func (this *CommandLog) Append(payload []byte) (prev *LogEntry, curr *LogEntry) 
 
 func (this *CommandLog) Size() int {
 	return len(this.data)
+}
+
+func (this *CommandLog) Reload() {
+
+	this.file.Seek(0, 0)
+	this.data = this.data[:0]
+
+	buf := bufio.NewReader(this.file)
+	dec := gob.NewDecoder(buf)
+
+	for {
+		entry := LogEntry{}
+		e := dec.Decode(&entry)
+		if e == io.EOF {
+			break
+		}
+		// data.Set(entry.Index, entry)
+		this.data = append(this.data, entry)
+	}
+
 }
 
 // Get get single log
@@ -189,28 +220,39 @@ func (this *CommandLog) DropFrom(inx uint32) error {
 	return nil
 }
 
-// GetRange get slice with range of data
-func (this *CommandLog) DropLast(n uint) error {
-	return nil
-	// func Truncate(name string, size int64) error
+// DropLast drop last n entries and persist
+func (this *CommandLog) DropLast(n int) error {
 
-	// this.file.Truncate()
+	// get initial file size
+	stats, err := this.file.Stat()
+	if err != nil {
+		return err
+	}
 
-	// if start > end {
-	// 	return nil, errors.New("invalid input, start > end index")
-	// }
+	// create
+	var buf bytes.Buffer
+	w := bufio.NewWriter(&buf)
+	enc := gob.NewEncoder(w)
 
-	// iStart := sort.Search(len(this.data), func(i int) bool { return this.data[i].Index >= start })
-	// if iStart < 0 {
-	// 	return nil, errors.New("index out of range")
-	// }
-	// iEnd := sort.Search(len(this.data), func(i int) bool { return this.data[i].Index >= end })
-	// if iEnd == len(this.data) {
-	// 	return nil, errors.New("index out of range")
-	// }
-	// out := make([]*LogEntry, iEnd-iStart+1)
-	// for i := iStart; i <= iEnd; i++ {
-	// 	out[i-iStart] = &this.data[i]
-	// }
-	// return out, nil
+	// write empty to figure out starting point; gob creates header
+	enc.Encode(LogEntry{})
+	w.Flush()
+	start := buf.Len()
+
+	// write actual data
+	for i := len(this.data) - 1; i >= len(this.data)-n; i-- {
+		enc.Encode(this.data[i])
+	}
+	// flush and figure out new size
+	w.Flush()
+	size := stats.Size() - int64(buf.Len()-start)
+
+	// truncate and set new offset
+	err = this.file.Truncate(size)
+	this.file.Seek(size, 0)
+
+	// drop entires from data slice
+	this.data = this.data[:len(this.data)-n]
+
+	return err
 }

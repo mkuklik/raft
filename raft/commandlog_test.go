@@ -13,14 +13,20 @@ func TestCommandLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(file.Name())
+	t.Cleanup(func() {
+		// file.Close()
+		err := os.Remove(file.Name())
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	})
 
 	clog := NewCommandLog(file)
 
 	payload1 := []byte("111")
-	payload2 := []byte("222")
-	payload3 := []byte("333")
-	payload4 := []byte("444")
+	payload2 := []byte("22222")
+	payload3 := []byte("33")
+	payload4 := []byte("4444444444")
 
 	t.Run("append and sync", func(t *testing.T) {
 
@@ -47,6 +53,7 @@ func TestCommandLog(t *testing.T) {
 
 		}
 		clog.Append(payload4)
+
 	})
 
 	t.Run("check loading", func(t *testing.T) {
@@ -113,10 +120,43 @@ func TestCommandLog(t *testing.T) {
 
 	})
 
-	// got := Hello("Chris")
-	// want := "Hello, Chris"
+	t.Run("check DropLast", func(t *testing.T) {
+		n := clog.Size()
 
-	// if got != want {
-	//     t.Errorf("got %q want %q", got, want)
-	// }
+		clog.DropLast(1)
+
+		if clog.Size() != n-1 {
+			t.Errorf("faield to drop last entry, got %q, want %q", clog.Size(), n-1)
+		}
+
+		clog.Reload()
+
+		if clog.Size() != n-1 {
+			t.Errorf("faield to drop last entry, got %q, want %q", clog.Size(), n-1)
+		}
+		last := clog.Last()
+		if !bytes.Equal(last.Payload, payload3) {
+			t.Errorf("failed Dropping last")
+		}
+	})
+
+	t.Run("check DropLast 2", func(t *testing.T) {
+		n := clog.Size()
+
+		clog.DropLast(2)
+
+		if clog.Size() != n-2 {
+			t.Errorf("faield to drop last entry, got %q, want %q", clog.Size(), n-2)
+		}
+
+		clog.Reload()
+
+		if clog.Size() != n-2 {
+			t.Errorf("faield to drop last entry, got %d, want %d", clog.Size(), n-2)
+		}
+		last := clog.Last()
+		if !bytes.Equal(last.Payload, payload1) {
+			t.Errorf("failed Dropping last")
+		}
+	})
 }
