@@ -4,6 +4,7 @@ Raft implementation
 # TODO
 - testing follower AppendEntry w/ 100% coverage
 - testing follower RequestVoteFollower w/ 100% coverage
+- testing leader w/ 100% coverage
 - load logs, persist log on append
 - persist log and persistant state when required
 - refactor states directly to RaftNode
