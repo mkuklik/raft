@@ -32,8 +32,9 @@ func TestCommandLog(t *testing.T) {
 
 		tmp, _ := file.Stat()
 		before := tmp.Size()
+		var term uint32 = 1
 
-		clog.Append(payload1)
+		clog.Append(term, payload1)
 
 		tmp, _ = file.Stat()
 		after := tmp.Size()
@@ -42,17 +43,17 @@ func TestCommandLog(t *testing.T) {
 			t.Errorf("size shouldnt be the same")
 		}
 
-		prev, curr := clog.Append(payload2)
+		prev, curr := clog.Append(term, payload2)
 		if prev.Index != curr.Index-1 {
 			t.Errorf("wrong index: prev %v, curr: %v", prev.Index, curr.Index)
 
 		}
-		prev, curr = clog.Append(payload3)
+		prev, curr = clog.Append(term, payload3)
 		if prev.Index != curr.Index-1 {
 			t.Errorf("wrong index: prev %v, curr: %v", prev.Index, curr.Index)
 
 		}
-		clog.Append(payload4)
+		clog.Append(term, payload4)
 
 	})
 

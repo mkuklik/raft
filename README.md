@@ -2,11 +2,18 @@
 Raft implementation
 
 # TODO
+- testing follower AppendEntry w/ 100% coverage
+- testing follower RequestVoteFollower w/ 100% coverage
 - load logs, persist log on append
 - persist log and persistant state when required
 - refactor states directly to RaftNode
 - snapshot
 - tests ???
+- Membership Changes (§6 of the Raft paper and §4 of the dissertation)
+- Log Compaction (§7 of the Raft paper and §5 of the dissertation)
+- Web application to control and interface with a Raft node (using gRPC)
+- Snapshots, using the Chandy-Lamport or another algorithm
+
 
 Sources:
 - https://github.com/etcd-io/etcd/blob/master/raft/README.md

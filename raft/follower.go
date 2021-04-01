@@ -24,6 +24,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 	}
 
 	// Receiver implementation:
@@ -38,7 +39,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 	if len(msg.Entries) > 0 {
 		// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 		// whose term matches prevLogTerm (§5.3)
-		if !node.clog.Has(msg.PrevLogTerm, msg.PrevLogIndex) {
+		if msg.PrevLogIndex != 0 && !node.clog.Has(msg.PrevLogTerm, msg.PrevLogIndex) {
 			node.Logger.Infof("replied false to AppendEntries from %d; 2.", ctx.Value(NodeIDKey))
 			return &pb.AppendEntriesReply{
 				Term:    node.state.CurrentTerm,

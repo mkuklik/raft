@@ -48,10 +48,10 @@ func (h *serverStats) HandleConn(ctx context.Context, s stats.ConnStats) {
 
 	switch s.(type) {
 	case *stats.ConnBegin:
-		log.Infof("%s: client connected, %s\n", h.name, addr)
+		log.Infof("%s: client connected, %s", h.name, addr)
 	case *stats.ConnEnd:
-		log.Infof("%s: client disconnected, %s\n", h.name, addr)
+		log.Infof("%s: client disconnected, %s", h.name, addr)
 	default:
-		log.Infof("%s: stats message, %#v\n", h.name, s)
+		log.Infof("%s: stats message, %#v", h.name, s)
 	}
 }

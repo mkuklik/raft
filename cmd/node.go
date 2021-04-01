@@ -16,14 +16,13 @@ import (
 )
 
 type StateM struct{}
-type StateEvent struct{}
 
-func (sm StateM) Apply(event raft.StateMachineEvent) bool {
-	return false
+func (sm StateM) Apply(event []byte) error {
+	return fmt.Errorf("Not implemented yet")
 }
 
-func (sm StateM) Current() interface{} {
-	return StateM{}
+func (sm StateM) Snapshot() ([]byte, error) {
+	return nil, fmt.Errorf("Not implemented yet")
 }
 
 func main() {

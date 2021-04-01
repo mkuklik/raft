@@ -84,9 +84,15 @@ func (node *RaftNode) checkCommittedEntries() {
 	// TODO lock
 	for node.state.CommitIndex > node.state.LastApplied {
 		node.state.LastApplied++
-		node.sm.Apply(node.state.LastApplied)
+		entry := node.clog.Get(node.state.LastApplied)
+		if entry == nil {
+			// TODO
+		}
+		err := node.sm.Apply(entry.Payload)
+		if err != nil {
+			// TODO
+		}
 	}
-
 }
 
 func (node *RaftNode) SwitchTo(to NodeStatus) {
@@ -152,10 +158,8 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 					node.nodeStatus = Follower
 					go node.RunFollower(ctx)
 				}
-				node.Logger = log.WithFields(log.Fields{"S": NodeStatusMap[node.nodeStatus], "T": node.state.CurrentTerm})
+				node.Logger = log.WithFields(log.Fields{"ID": node.nodeID, "S": NodeStatusMap[node.nodeStatus], "T": node.state.CurrentTerm})
 			}
-
-			// default:
 		}
 	}
 }

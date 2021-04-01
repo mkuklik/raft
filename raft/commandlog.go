@@ -19,7 +19,8 @@ func init() {
 
 }
 
-// LogEntry each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+// LogEntry each entry contains command for state machine, and term when
+//   entry was received by leader (first index is 1)
 type LogEntry struct {
 	Term  uint32 // leader's term
 	Index uint32 // log index
@@ -30,7 +31,6 @@ type LogEntry struct {
 
 type CommandLog struct {
 	data    []LogEntry
-	Term    uint32
 	Index   uint32
 	lock    sync.Mutex
 	file    *os.File
@@ -57,8 +57,7 @@ func NewCommandLog(file *os.File) CommandLog {
 
 	return CommandLog{
 		data,
-		0,
-		0,
+		1,
 		sync.Mutex{},
 		file,
 		gob.NewEncoder(file),
@@ -81,7 +80,13 @@ func (this *CommandLog) Has(term uint32, index uint32) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	for i := len(this.data); i >= 0; i++ {
+	n := len(this.data)
+
+	if n == 0 {
+		return false
+	}
+
+	for i := n - 1; i >= 0; i-- {
 		if e := this.data[i]; e.Index == index && e.Term == term {
 			return true
 		}
@@ -98,13 +103,13 @@ func (this *CommandLog) AddEntries(entries *[]LogEntry) error {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	if this.file != nil { // ??? do I need it
+	if this.file == nil { // ??? do I need it
 		log.Fatal("file descriptor is missing")
 	}
 
 	var index uint32
 	if this.Size() > 0 {
-		index = this.Last().Index + 1
+		index = this.data[len(this.data)-1].Index + 1
 	}
 
 	for i, entry := range *entries {
@@ -130,18 +135,21 @@ func (this *CommandLog) AddEntries(entries *[]LogEntry) error {
 }
 
 // Append add new payload as entry; index is automatically generated, log is persisted.
-func (this *CommandLog) Append(payload []byte) (prev *LogEntry, curr *LogEntry) {
+func (this *CommandLog) Append(term uint32, payload []byte) (prev *LogEntry, curr *LogEntry) {
+
+	n := len(this.data)
+
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
-	if len(this.data) != 0 {
-		prev = &this.data[len(this.data)-1]
+	if n != 0 {
+		prev = &this.data[n-1]
 	}
-	newLogEntry := LogEntry{this.Term, this.Index, payload}
+	newLogEntry := LogEntry{term, this.Index, payload}
 
 	this.data = append(this.data, newLogEntry)
 	this.Index++
-	curr = &this.data[len(this.data)-1]
+	curr = &this.data[n-1]
 
 	// persist
 	if this.file != nil {
@@ -185,10 +193,11 @@ func (this *CommandLog) Reload() {
 
 // Get get single log
 func (this *CommandLog) Get(inx uint32) *LogEntry {
-	if len(this.data) > 0 && (inx < this.data[0].Index || inx > this.data[len(this.data)-1].Index) {
+	n := len(this.data)
+	if n == 0 || (n > 0 && (inx < this.data[0].Index || inx > this.data[n-1].Index)) {
 		return nil
 	}
-	i := sort.Search(len(this.data), func(i int) bool { return this.data[i].Index >= inx })
+	i := sort.Search(n, func(i int) bool { return this.data[i].Index >= inx })
 	if i < 0 {
 		return nil
 	}
@@ -197,6 +206,12 @@ func (this *CommandLog) Get(inx uint32) *LogEntry {
 
 // GetRange get slice with range of data
 func (this *CommandLog) GetRange(start, end uint32) ([]*LogEntry, error) {
+	n := len(this.data)
+
+	if n == 0 {
+		return nil, errors.New("index out of range")
+	}
+
 	if start > end {
 		return nil, errors.New("invalid input, start > end index")
 	}

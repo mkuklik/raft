@@ -105,6 +105,11 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 			node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
 
 			node.signals <- MatchIndexUpdate
+		} else if !reply.Success && reply.Term < node.state.CurrentTerm {
+			// Append failed because other node had lower term than currentTerm
+			// node is behind and has to switch to follower to
+			// TODO show we delay
+			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
 
 		} else if !reply.Success && len(req.Entries) > 0 {
 			// If AppendEntries fails because of log inconsistency:
@@ -186,11 +191,15 @@ func (node *RaftNode) checkCommitIndex() {
 // AddLogEntry used by client to propagate log entry
 func (node *RaftNode) AddCommand(payload []byte) error {
 
+	if node.nodeStatus != Leader {
+		return fmt.Errorf("commands are not accepted: node %d is not a leader", node.nodeID)
+	}
+
 	N := len(node.clients)
 
 	// Add entry to local log and persist
 
-	prevLogEntry, newLogEntry := node.clog.Append(payload)
+	prevLogEntry, newLogEntry := node.clog.Append(node.state.CurrentTerm, payload)
 
 	// replicate
 
@@ -202,21 +211,28 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancelfunc()
 
-			reply, err := (*c).AppendEntries(ctx,
-				&raftpb.AppendEntriesRequest{
-					Term:         node.state.CurrentTerm,
-					LeaderId:     node.nodeID,
-					PrevLogIndex: prevLogEntry.Index,
-					PrevLogTerm:  prevLogEntry.Term,
-					Entries: []*raftpb.LogEntry{
-						{
-							Term:    newLogEntry.Term,
-							Index:   newLogEntry.Index,
-							Payload: newLogEntry.Payload,
-						},
-					},
-					LeaderCommit: node.state.CommitIndex, // double check
-				})
+			node.Logger.Infof("prevLogEntry=%v ; newLogEntry=%#v", prevLogEntry, *newLogEntry)
+			var prevLogIndex uint32
+			var prevLogTerm uint32
+			if prevLogEntry != nil {
+				prevLogIndex = prevLogEntry.Index
+				prevLogTerm = prevLogEntry.Term
+			}
+
+			logEntry := raftpb.LogEntry{
+				Term:    newLogEntry.Term,
+				Index:   newLogEntry.Index,
+				Payload: newLogEntry.Payload,
+			}
+			msg := raftpb.AppendEntriesRequest{
+				Term:         node.state.CurrentTerm,
+				LeaderId:     node.nodeID,
+				PrevLogIndex: prevLogIndex,
+				PrevLogTerm:  prevLogTerm,
+				Entries:      []*raftpb.LogEntry{&logEntry},
+				LeaderCommit: node.state.CommitIndex, // double check
+			}
+			reply, err := (*c).AppendEntries(ctx, &msg)
 			if err != nil {
 				node.Logger.Errorf("AppendEntries request failed, %s", err.Error())
 				ballotbox <- false
