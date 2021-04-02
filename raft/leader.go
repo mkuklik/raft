@@ -206,7 +206,12 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 	ballotbox := make(chan bool, N)
 	defer close(ballotbox)
 
-	for _, client := range node.clients {
+	for i, client := range node.clients {
+		// skip yourself
+		if i == int(node.nodeID) {
+			continue
+		}
+
 		go func(c *raftpb.RaftClient) {
 			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancelfunc()
@@ -317,6 +322,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 					defer cancel()
 
 					go func(id int) {
+						node.Logger.Debugf("sending heartbeat to %d", id)
 						node.sendAppendEntries(tx, id, node.prepareLog(ctx, id))
 					}(id)
 				}

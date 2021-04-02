@@ -34,8 +34,8 @@ func NewConfig() Config {
 	return Config{
 		Bootstrap:             "",
 		MaxConnectionAttempts: 10,
-		ElectionTimeout:       5 * time.Second, //50 * time.Millisecond,
-		HeartBeat:             2 * time.Second, //10 * time.Millisecond,
+		ElectionTimeout:       2 * time.Second, //50 * time.Millisecond,
+		HeartBeat:             1 * time.Second, //10 * time.Millisecond,
 		MTBF:                  24 * 30 * 3 * time.Hour,
 	}
 }
