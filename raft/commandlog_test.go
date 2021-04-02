@@ -67,15 +67,15 @@ func TestCommandLog(t *testing.T) {
 			t.Errorf("failed loading data")
 		}
 
-		if clog.Last().Index != 3 {
-			t.Errorf("wrong index: got %v, want: %v", clog.Last().Index, 1)
+		if clog.Last().Index != 4 {
+			t.Errorf("wrong index: got %v, want: %v", clog.Last().Index, 4)
 		}
 
 		if bytes.Equal(clog.Last().Payload, payload2) {
 			t.Errorf("wrong payload: got %v, want: %v", clog.Last().Payload, payload2)
 		}
 
-		got := clog.Get(0).Payload
+		got := clog.Get(1).Payload
 		want := payload1
 		if !bytes.Equal(got, want) {
 			t.Errorf("wrong payload: got %v, want: %v", got, want)
@@ -84,9 +84,9 @@ func TestCommandLog(t *testing.T) {
 	})
 
 	t.Run("check get", func(t *testing.T) {
-		got := clog.Get(0)
-		if got.Index != 0 {
-			t.Errorf("wrong index, got %q, want %q", got.Index, 0)
+		got := clog.Get(1)
+		if got.Index != 1 {
+			t.Errorf("wrong index, got %q, want %q", got.Index, 1)
 		}
 		if !bytes.Equal(got.Payload, payload1) {
 			t.Errorf("wrong payload: got %v, want: %v", got.Payload, payload1)
@@ -103,9 +103,9 @@ func TestCommandLog(t *testing.T) {
 			t.Errorf("wrong length of range , got %q, want %q", len(got), 2)
 		}
 		if got[0].Index != 1 {
-			t.Errorf("wrong index, got %q, want %q", got[0].Index, 0)
+			t.Errorf("wrong index, got %q, want %q", got[0].Index, 1)
 		}
-		if !bytes.Equal(got[0].Payload, payload2) {
+		if !bytes.Equal(got[0].Payload, payload1) {
 			t.Errorf("wrong payload: got %v, want: %v", got[0].Payload, payload1)
 		}
 

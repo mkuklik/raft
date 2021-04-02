@@ -129,7 +129,7 @@ func (this *CommandLog) AddEntries(entries *[]LogEntry) error {
 	// persist
 	err := this.file.Sync()
 	if err != nil {
-		log.Fatalf("failed flashing log file, %s", err.Error())
+		return fmt.Errorf("failed flashing log file, %s", err.Error())
 	}
 	return nil
 }
@@ -149,7 +149,7 @@ func (this *CommandLog) Append(term uint32, payload []byte) (prev *LogEntry, cur
 
 	this.data = append(this.data, newLogEntry)
 	this.Index++
-	curr = &this.data[n-1]
+	curr = &this.data[len(this.data)-1]
 
 	// persist
 	if this.file != nil {

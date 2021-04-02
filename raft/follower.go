@@ -141,12 +141,12 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 		case <-ctx.Done():
 			node.Logger.Debugf("cancelled RunFollower")
 			return
+
 		// reset election timer
 		case <-node.electionTimeoutTimer.C:
 			node.Logger.Debugf("Follower timer")
 			node.SwitchTo(Candidate)
 			return
-			// default:
 		}
 	}
 
