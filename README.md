@@ -2,6 +2,10 @@
 Raft implementation
 
 # TODO
+- test checkCommittedEntries
+- test checkCommittedIndex
+- test AddCommand to 100% coverage
+- 
 - testing follower AppendEntry w/ 100% coverage
 - testing follower RequestVoteFollower w/ 100% coverage
 - testing leader w/ 100% coverage

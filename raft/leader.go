@@ -318,9 +318,7 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 					}(id)
 				}
 			}
-
 			heartBeatTimer.Reset(node.config.HeartBeat)
-			// default:
 		}
 	}
 }
