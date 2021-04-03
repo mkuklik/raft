@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
-	pb "github.com/mkuklik/raft/raftpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -189,13 +188,13 @@ func (node *RaftNode) checkCommitIndex() {
 // replicated it on a majority of the servers (e.g., entry 7 in Figure 6).
 
 // AddLogEntry used by client to propagate log entry
-func (node *RaftNode) AddCommand(payload []byte) error {
+func (node *RaftNode) AddCommand(ctx context.Context, payload []byte) error {
 
 	if node.nodeStatus != Leader {
 		return fmt.Errorf("commands are not accepted: node %d is not a leader", node.nodeID)
 	}
 
-	N := len(node.clients)
+	N := len(node.clients) - 1
 
 	// Add entry to local log and persist
 
@@ -213,10 +212,9 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 		}
 
 		go func(c *raftpb.RaftClient) {
-			ctx, cancelfunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancelfunc := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer cancelfunc()
 
-			node.Logger.Infof("prevLogEntry=%v ; newLogEntry=%#v", prevLogEntry, *newLogEntry)
 			var prevLogIndex uint32
 			var prevLogTerm uint32
 			if prevLogEntry != nil {
@@ -229,6 +227,7 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 				Index:   newLogEntry.Index,
 				Payload: newLogEntry.Payload,
 			}
+
 			msg := raftpb.AppendEntriesRequest{
 				Term:         node.state.CurrentTerm,
 				LeaderId:     node.nodeID,
@@ -237,6 +236,7 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 				Entries:      []*raftpb.LogEntry{&logEntry},
 				LeaderCommit: node.state.CommitIndex, // double check
 			}
+
 			reply, err := (*c).AppendEntries(ctx, &msg)
 			if err != nil {
 				node.Logger.Errorf("AppendEntries request failed, %s", err.Error())
@@ -253,36 +253,27 @@ func (node *RaftNode) AddCommand(payload []byte) error {
 		}(client)
 	}
 
-	yeas := 0
+	yeas := 1 // voting for herself
 	count := 0
-	passed := false
-	for {
-		select {
-		case v := <-ballotbox:
-			count++
-			if v {
-				yeas++
+	for count < N {
+		v := <-ballotbox
+		count++
+		if v {
+			yeas++
+		}
+		if yeas >= (N+1)/2 {
+			node.Logger.Debugf("replication succeeded")
+			err := node.sm.Apply(payload)
+			if err != nil {
+				node.Logger.Debugf("failed to apply command, %s", err.Error())
+				return err
 			}
-			if yeas >= (N+1)/2 {
-				passed = true
-				break
-			}
-			// if count >= N {
-			// 	break
-			// }
+			return nil
 		}
 	}
 
-	if !passed {
-		node.Logger.Debugf("replication failed to majority")
-		return fmt.Errorf("failed to process command")
-	}
-
-	node.Logger.Debugf("replication succeeded to majority")
-
-	node.sm.Apply(payload)
-
-	return nil
+	node.Logger.Debugf("replication failed to majority")
+	return fmt.Errorf("failed to process command")
 }
 
 func (node *RaftNode) RunLeader(ctx context.Context) {
@@ -334,27 +325,27 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 	}
 }
 
-func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesReply, error) {
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
 	}
 
-	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
+	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
 }
 
-func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
 	}
 
-	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
+	return &raftpb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
 }
 
-func (node *RaftNode) InstallSnapshotLeader(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshotLeader(ctx context.Context, msg *raftpb.InstallSnapshotRequest) (*raftpb.InstallSnapshotReply, error) {
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term

@@ -71,6 +71,8 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 				Term:    node.state.CurrentTerm,
 				Success: false,
 			}, nil
+		} else {
+			node.Logger.Debugf("Appended %d new entries", len(msg.Entries))
 		}
 	}
 
@@ -82,6 +84,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		} else {
 			node.state.CommitIndex = last.Index
 		}
+		node.signals <- CommitIndexUpdate // trigger applying committed logs to state machine
 	}
 
 	node.ResetElectionTimer()

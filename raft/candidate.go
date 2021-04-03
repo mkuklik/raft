@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/mkuklik/raft/raftpb"
-	pb "github.com/mkuklik/raft/raftpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -91,7 +90,7 @@ func (node *RaftNode) RunCandidate(ctx context.Context) {
 	}
 }
 
-func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesReply, error) {
 	// If AppendEntries RPC received from new leader: convert to follower
 	/*
 		While waiting for votes, a candidate may receive an AppendEntries RPC from
@@ -106,12 +105,12 @@ func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *pb.Append
 		node.state.CurrentTerm = msg.Term
 		node.state.VotedFor = -1
 		node.SwitchTo(Follower)
-		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
+		return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 	}
-	return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
+	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
 }
 
-func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
@@ -119,10 +118,10 @@ func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *pb.RequestV
 	}
 
 	// candidate votes for itself
-	return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
+	return &raftpb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil
 }
 
-func (node *RaftNode) InstallSnapshotCandidate(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshotCandidate(ctx context.Context, msg *raftpb.InstallSnapshotRequest) (*raftpb.InstallSnapshotReply, error) {
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term

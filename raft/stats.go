@@ -8,10 +8,10 @@ import (
 	"google.golang.org/grpc/stats"
 )
 
-var ContextKey string
+type ContextKey string
 
-const AddressKey string = "address"
-const NodeIDKey string = "nodeID"
+const AddressKey ContextKey = "address"
+const NodeIDKey ContextKey = "nodeID"
 
 // Build stats handler
 type serverStats struct {
@@ -19,7 +19,7 @@ type serverStats struct {
 	name string
 }
 
-func newServerStats(node *RaftNode, name string) *serverStats {
+func NewServerStats(node *RaftNode, name string) *serverStats {
 	return &serverStats{node, name}
 }
 

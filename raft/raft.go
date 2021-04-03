@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
-	pb "github.com/mkuklik/raft/raftpb"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Signal int
@@ -77,20 +77,22 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) 
 	}
 }
 
-// checkCommittedEntries checks if there are new commited entries to be applied to the sate machine
+// checkCommittedEntries checks if there are new commited entries to be applied to the state machine
 // 	If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
 func (node *RaftNode) checkCommittedEntries() {
 
-	// TODO lock
+	// TODO lock ???
 	for node.state.CommitIndex > node.state.LastApplied {
-		node.state.LastApplied++
-		entry := node.clog.Get(node.state.LastApplied)
+		entry := node.clog.Get(node.state.LastApplied + 1)
 		if entry == nil {
 			// TODO
-		}
-		err := node.sm.Apply(entry.Payload)
-		if err != nil {
-			// TODO
+		} else {
+			if err := node.sm.Apply(entry.Payload); err != nil {
+				node.Logger.Errorf("failed to apply log entry %d, %s", entry.Index, err.Error())
+				// TODO
+			} else {
+				node.state.LastApplied++
+			}
 		}
 	}
 }
@@ -130,7 +132,8 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 	for {
 		select {
 		case <-parentCtx.Done():
-			break
+			cancel()
+			return
 		case s := <-node.signals:
 			switch s {
 			case CommitIndexUpdate:
@@ -167,7 +170,7 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 func (node *RaftNode) connectToPeer(ctx context.Context, id uint32, serverAddr string) {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
-		grpc.WithStatsHandler(&serverStats{node, "dialer"}),
+		grpc.WithStatsHandler(NewServerStats(node, "dialer")),
 	}
 	conn, err := grpc.DialContext(
 		context.WithValue(context.Background(), AddressKey, serverAddr),
@@ -201,7 +204,7 @@ func (n *RaftNode) runListener(ctx context.Context, addr string) {
 	defer l.Close()
 
 	opts := []grpc.ServerOption{
-		grpc.StatsHandler(&serverStats{n, "server"}),
+		grpc.StatsHandler(NewServerStats(n, "server")),
 	}
 	server := grpc.NewServer(opts...)
 	raftpb.RegisterRaftServer(server, n)
@@ -218,7 +221,7 @@ func (node *RaftNode) Run(ctx context.Context, addr string) {
 	node.SwitchTo(Follower)
 }
 
-func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRequest) (*pb.AppendEntriesReply, error) {
+func (node *RaftNode) AppendEntries(ctx context.Context, msg *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesReply, error) {
 	switch node.nodeStatus {
 	case Follower:
 		return node.AppendEntriesFollower(ctx, msg)
@@ -227,10 +230,10 @@ func (node *RaftNode) AppendEntries(ctx context.Context, msg *pb.AppendEntriesRe
 	case Leader:
 		return node.AppendEntriesLeader(ctx, msg)
 	}
-	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
+	return nil, status.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
 }
 
-func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteRequest) (*pb.RequestVoteReply, error) {
+func (node *RaftNode) RequestVote(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
 	switch node.nodeStatus {
 	case Follower:
 		return node.RequestVoteFollower(ctx, msg)
@@ -239,10 +242,10 @@ func (node *RaftNode) RequestVote(ctx context.Context, msg *pb.RequestVoteReques
 	case Leader:
 		return node.RequestVoteLeader(ctx, msg)
 	}
-	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
+	return nil, status.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
 }
 
-func (node *RaftNode) InstallSnapshot(ctx context.Context, msg *pb.InstallSnapshotRequest) (*pb.InstallSnapshotReply, error) {
+func (node *RaftNode) InstallSnapshot(ctx context.Context, msg *raftpb.InstallSnapshotRequest) (*raftpb.InstallSnapshotReply, error) {
 	switch node.nodeStatus {
 	case Follower:
 		return node.InstallSnapshotFollower(ctx, msg)
@@ -251,5 +254,5 @@ func (node *RaftNode) InstallSnapshot(ctx context.Context, msg *pb.InstallSnapsh
 	case Leader:
 		return node.InstallSnapshotLeader(ctx, msg)
 	}
-	return nil, grpc.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
+	return nil, status.Errorf(codes.Internal, "invalid nodeStatus, %v", node.nodeStatus)
 }

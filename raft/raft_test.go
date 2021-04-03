@@ -35,8 +35,6 @@ func start(t *testing.T, ctx context.Context, nodeID uint32) *RaftNode {
 	r.Run(ctx, config.Peers[nodeID])
 
 	return &r
-	// <-ctx.Done()
-
 }
 
 func TestReplication(t *testing.T) {
@@ -52,9 +50,9 @@ func TestReplication(t *testing.T) {
 	//
 	want := []byte("fdkslflkdsj")
 	if r1.nodeStatus == Leader {
-		r1.AddCommand(want)
+		r1.AddCommand(ctx, want)
 	} else if r2.nodeStatus == Leader {
-		r2.AddCommand(want)
+		r2.AddCommand(ctx, want)
 	} else {
 		t.Fatalf("there is no leader")
 	}
