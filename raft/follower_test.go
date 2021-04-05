@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/mkuklik/raft/raftpb"
@@ -12,6 +13,9 @@ import (
 
 type StateM struct{}
 
+func NewStateM() StateMachine {
+	return &StateM{}
+}
 func (sm StateM) Apply(event []byte) error {
 	return fmt.Errorf("Not implemented yet")
 }
@@ -20,12 +24,12 @@ func (sm StateM) Snapshot() ([]byte, error) {
 	return nil, fmt.Errorf("Not implemented yet")
 }
 
-func create(t *testing.T, term uint32) RaftNode {
+func create(t *testing.T, term uint32, nclients int) *RaftNode {
 
 	config := NewConfig()
-	config.Peers = []string{
-		"localhost:1234",
-		"localhost:1235",
+	config.Peers = []string{}
+	for i := 0; i < nclients; i++ {
+		config.Peers = append(config.Peers, "localhost:"+strconv.Itoa(1234+i))
 	}
 
 	file, err := ioutil.TempFile("/tmp/", "")
@@ -40,16 +44,16 @@ func create(t *testing.T, term uint32) RaftNode {
 		}
 	})
 
-	sm := StateM{} // Some state machine
-	r := NewRaftNode(&config, 0, sm, file)
+	sm := NewStateM() // Some state machine
+	r := NewRaftNode(&config, 0, &sm, file)
 	r.state.CurrentTerm = term
 
-	return r
+	return &r
 }
 
 func TestFollowerAppendEntry(t *testing.T) {
 
-	r := create(t, 1)
+	r := create(t, 1, 2)
 
 	ctx := context.WithValue(context.Background(), NodeIDKey, 1)
 
@@ -207,7 +211,7 @@ func (x netAddr) String() string  { return "some.address" }
 
 func TestRequestVoteFollower(t *testing.T) {
 
-	r := create(t, 3)
+	r := create(t, 3, 2)
 
 	ctx := context.WithValue(context.WithValue(context.Background(), NodeIDKey, 1), AddressKey, netAddr{})
 
@@ -300,4 +304,33 @@ func TestRequestVoteFollower(t *testing.T) {
 			t.Errorf("vote shouldn't be granted to another candidate when already voted for someone else")
 		}
 	})
+}
+
+func TestApplyCommittedEntries(t *testing.T) {
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
+
+	r := start(t, ctx, 0)
+	entries := []LogEntry{
+		{
+			Term:    1,
+			Index:   1,
+			Payload: []byte("111"),
+		},
+		{
+			Term:    1,
+			Index:   2,
+			Payload: []byte("222"),
+		},
+	}
+	r.clog.AddEntries(&entries)
+
+	r.state.CommitIndex = 100
+	r.state.LastApplied = 0
+
+	r.applyCommittedEntries()
+
+	// TODO
+
+	cancelFunc()
 }

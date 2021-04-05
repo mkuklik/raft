@@ -132,6 +132,28 @@ func (node *RaftNode) InstallSnapshotFollower(ctx context.Context, msg *pb.Insta
 	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }
 
+// applyCommittedEntries checks if there are new commited entries to be applied to the state machine
+// 	If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+func (node *RaftNode) applyCommittedEntries() {
+	node.logLock.Lock()
+	defer node.logLock.Unlock()
+
+	for node.state.CommitIndex > node.state.LastApplied {
+		entry := node.clog.Get(node.state.LastApplied + 1)
+		if entry == nil {
+			node.Logger.Errorf("failed to apply log entry %d, entry not found", node.state.LastApplied+1)
+			break
+		} else {
+			if err := (*node.sm).Apply(entry.Payload); err != nil {
+				node.Logger.Errorf("failed to apply log entry %d, %s", entry.Index, err.Error())
+				break
+			} else {
+				node.state.LastApplied++
+			}
+		}
+	}
+}
+
 func (node *RaftNode) RunFollower(ctx context.Context) {
 	node.Logger.Infof("Starting as Follower")
 
@@ -150,6 +172,12 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 			node.Logger.Debugf("Follower timer")
 			node.SwitchTo(Candidate)
 			return
+
+		case s := <-node.signals:
+			switch s {
+			case CommitIndexUpdate:
+				go node.applyCommittedEntries()
+			}
 		}
 	}
 

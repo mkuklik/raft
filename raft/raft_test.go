@@ -3,11 +3,30 @@ package raft
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 )
+
+type StateMachineMock struct {
+	AppliedEvents [][]byte
+}
+
+func NewStateMachineMock() StateMachine {
+	tmp := StateMachineMock{make([][]byte, 0)}
+	return &tmp
+}
+
+func (sm *StateMachineMock) Apply(event []byte) error {
+	sm.AppliedEvents = append(sm.AppliedEvents, event)
+	return nil
+}
+
+func (sm StateMachineMock) Snapshot() ([]byte, error) {
+	return nil, fmt.Errorf("Not implemented yet")
+}
 
 func start(t *testing.T, ctx context.Context, nodeID uint32) *RaftNode {
 
@@ -29,8 +48,8 @@ func start(t *testing.T, ctx context.Context, nodeID uint32) *RaftNode {
 		}
 	})
 
-	sm := StateM{} // Some state machine
-	r := NewRaftNode(&config, uint32(nodeID), sm, file)
+	sm := NewStateMachineMock() // Some state machine
+	r := NewRaftNode(&config, uint32(nodeID), &sm, file)
 
 	r.Run(ctx, config.Peers[nodeID])
 

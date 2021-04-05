@@ -2,8 +2,7 @@
 Raft implementation
 
 # TODO
-- test checkCommittedEntries
-- test checkCommittedIndex
+- test ApplyCommittedEntries
 - test AddCommand to 100% coverage
 - 
 - testing follower AppendEntry w/ 100% coverage
@@ -18,6 +17,10 @@ Raft implementation
 - Log Compaction (§7 of the Raft paper and §5 of the dissertation)
 - Web application to control and interface with a Raft node (using gRPC)
 - Snapshots, using the Chandy-Lamport or another algorithm
+
+
+DONE:
+- test checkCommittedIndex
 
 
 Sources:

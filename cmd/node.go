@@ -17,12 +17,16 @@ import (
 
 type StateM struct{}
 
-func (sm StateM) Apply(event []byte) error {
-	return fmt.Errorf("Not implemented yet")
+func NewStateM() raft.StateMachine {
+	return &StateM{}
+}
+
+func (sm *StateM) Apply(event []byte) error {
+	return fmt.Errorf("not implemented yet")
 }
 
 func (sm StateM) Snapshot() ([]byte, error) {
-	return nil, fmt.Errorf("Not implemented yet")
+	return nil, fmt.Errorf("not implemented yet")
 }
 
 func main() {
@@ -89,10 +93,10 @@ func main() {
 	log.Infof("opened logfile %s", filepath)
 	defer file.Close()
 
-	sm := StateM{} // Some state machine
-	r := raft.NewRaftNode(&config, uint32(nodeID), sm, file)
+	sm := NewStateM() // Some state machine
+	r := raft.NewRaftNode(&config, uint32(nodeID), &sm, file)
 
-	termChan := make(chan os.Signal)
+	termChan := make(chan os.Signal, 1)
 	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)
 
 	ctx, cancelFunc := context.WithCancel(context.Background())

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/mkuklik/raft/raftpb"
@@ -35,7 +36,7 @@ type RaftNode struct {
 
 	nodeStatus NodeStatus
 	state      State
-	sm         StateMachine
+	sm         *StateMachine
 	clog       *CommandLog
 
 	conns   []*grpc.ClientConn
@@ -43,10 +44,13 @@ type RaftNode struct {
 
 	signals chan Signal
 
+	lock    sync.Mutex
+	logLock sync.Mutex
+
 	electionTimeoutTimer *time.Timer
 }
 
-func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) RaftNode {
+func NewRaftNode(config *Config, nodeID uint32, sm *StateMachine, file *os.File) RaftNode {
 
 	log.Infof("Raft NodeID %d", nodeID)
 
@@ -73,27 +77,9 @@ func NewRaftNode(config *Config, nodeID uint32, sm StateMachine, file *os.File) 
 		make([]*grpc.ClientConn, nPeers),
 		make([]*raftpb.RaftClient, nPeers),
 		make(chan Signal),
+		sync.Mutex{},
+		sync.Mutex{},
 		time.NewTimer(config.ElectionTimeout),
-	}
-}
-
-// checkCommittedEntries checks if there are new commited entries to be applied to the state machine
-// 	If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
-func (node *RaftNode) checkCommittedEntries() {
-
-	// TODO lock ???
-	for node.state.CommitIndex > node.state.LastApplied {
-		entry := node.clog.Get(node.state.LastApplied + 1)
-		if entry == nil {
-			// TODO
-		} else {
-			if err := node.sm.Apply(entry.Payload); err != nil {
-				node.Logger.Errorf("failed to apply log entry %d, %s", entry.Index, err.Error())
-				// TODO
-			} else {
-				node.state.LastApplied++
-			}
-		}
 	}
 }
 
@@ -136,12 +122,6 @@ func (node *RaftNode) mainLoop(parentCtx context.Context) {
 			return
 		case s := <-node.signals:
 			switch s {
-			case CommitIndexUpdate:
-				go node.checkCommittedEntries()
-
-			case MatchIndexUpdate:
-				go node.checkCommitIndex()
-
 			case SwitchToCandidate, SwitchToFollower, SwitchToLeader:
 				if cancel != nil {
 					cancel()

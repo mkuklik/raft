@@ -64,8 +64,10 @@ func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntr
 			entries = append(entries, &tmp)
 		}
 		prev := node.clog.Get(node.state.NextIndex[id] - 1)
-		prevLogIndex = prev.Index
-		prevLogTerm = prev.Term
+		if prev != nil {
+			prevLogIndex = prev.Index
+			prevLogTerm = prev.Term
+		}
 	}
 
 	req := &raftpb.AppendEntriesRequest{
@@ -80,44 +82,68 @@ func (node *RaftNode) prepareLog(ctx context.Context, id int) *raftpb.AppendEntr
 	return req
 }
 
-func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb.AppendEntriesRequest) {
-	client := node.clients[id]
+func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb.AppendEntriesRequest, success chan bool) {
+
 	node.Logger.Debugf("sending AppendEntries to %d, %s", id, req.String())
+
+	client := node.clients[id]
+
 	reply, err := (*client).AppendEntries(ctx, req)
+
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok {
 			node.Logger.Errorf("failed sending AppendEntries to %s due to, %s", node.config.Peers[id], st.Message())
 		}
+		if success != nil {
+			success <- false
+		}
 	} else {
 		node.Logger.Debugf("reply to AppendEntries from %d, (term %d, success %v", id, reply.Term, reply.Success)
-		if reply.Term > node.state.CurrentTerm {
-			// switch to follower
-			node.state.CurrentTerm = reply.Term
-			node.SwitchTo(Follower)
-		}
+		if reply.Success {
 
-		if reply.Success && len(req.Entries) > 0 {
-			// If successful: update nextIndex and matchIndex for follower (§5.3)
-			// TODO lock
-			node.state.MatchIndex[id] = req.Entries[len(req.Entries)-1].Index
-			node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
-
-			node.signals <- MatchIndexUpdate
-		} else if !reply.Success && reply.Term < node.state.CurrentTerm {
-			// Append failed because other node had lower term than currentTerm
-			// node is behind and has to switch to follower to
-			// TODO show we delay
-			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
-
-		} else if !reply.Success && len(req.Entries) > 0 {
-			// If AppendEntries fails because of log inconsistency:
-			// decrement nextIndex and retry (§5.3)
-			if node.state.NextIndex[id] > 0 {
-				node.state.NextIndex[id]-- // TODO lock
+			if success != nil {
+				success <- true
 			}
-			// do we repeat it indefinitely ???
-			go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id))
+
+			if len(req.Entries) > 0 {
+				// If successful: update nextIndex and matchIndex for follower (§5.3)
+				node.lock.Lock()
+				if req.Entries[len(req.Entries)-1].Index > node.state.MatchIndex[id] {
+					node.state.MatchIndex[id] = req.Entries[len(req.Entries)-1].Index
+					node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
+					node.signals <- MatchIndexUpdate
+				}
+				node.lock.Unlock()
+			}
+
+		} else {
+
+			if success != nil {
+				success <- false
+			}
+
+			if reply.Term > node.state.CurrentTerm {
+				// switch to follower
+				node.state.CurrentTerm = reply.Term
+				node.SwitchTo(Follower)
+			} else if reply.Term < node.state.CurrentTerm {
+				// Append failed because other node had lower term than currentTerm.
+				// the node is behind and has to switch to follower to
+				// TODO should we delay resend ???
+				go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id), nil)
+
+			} else if len(req.Entries) > 0 {
+				// If AppendEntries fails because of log inconsistency:
+				// decrease nextIndex and retry (§5.3)
+				node.lock.Lock()
+				if node.state.NextIndex[id] > 0 {
+					node.state.NextIndex[id]--
+				}
+				node.lock.Unlock()
+				// do we repeat it indefinitely ???
+				go node.sendAppendEntries(ctx, id, node.prepareLog(ctx, id), nil)
+			}
 		}
 	}
 }
@@ -139,7 +165,7 @@ func (node *RaftNode) sendEmptyHeartBeat(ctx context.Context) {
 			defer cancel()
 
 			go func(id int) {
-				node.sendAppendEntries(tx, id, emptyReq)
+				node.sendAppendEntries(tx, id, emptyReq, nil)
 			}(id)
 		}
 	}
@@ -149,28 +175,30 @@ func (node *RaftNode) sendEmptyHeartBeat(ctx context.Context) {
 //  If there exists an N such that N > commitIndex, a majority
 //  of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
 func (node *RaftNode) checkCommitIndex() {
-	T := len(node.clients)
-	majority := (T + 1) / 2
+	node.lock.Lock()
+	defer node.lock.Unlock()
+
+	majority := len(node.clients) / 2
 
 	ci := node.state.CommitIndex + 1
 	for {
 		// check for majority
-		count := 0
+		count := 1 // voting for herself
 		for j := range node.clients {
-			if node.state.MatchIndex[j] >= ci {
+			if j != int(node.nodeID) && node.state.MatchIndex[j] >= ci {
 				count++
 			}
 		}
-		if count < majority {
-			ci--
+		if count <= majority {
+			// need 2 out of 3, 3 out of 4 nodes, etc
+			ci-- // backtrack by one
 			break
 		}
 		ci++
 	}
-	// TODO LOCK
+
 	if ci > node.state.CommitIndex {
 		node.state.CommitIndex = ci
-		node.signals <- CommitIndexUpdate
 	}
 }
 
@@ -189,12 +217,15 @@ func (node *RaftNode) checkCommitIndex() {
 
 // AddLogEntry used by client to propagate log entry
 func (node *RaftNode) AddCommand(ctx context.Context, payload []byte) error {
+	node.logLock.Lock()
+	defer node.logLock.Unlock()
 
 	if node.nodeStatus != Leader {
 		return fmt.Errorf("commands are not accepted: node %d is not a leader", node.nodeID)
 	}
 
 	N := len(node.clients) - 1
+	majority := len(node.clients) / 2
 
 	// Add entry to local log and persist
 
@@ -205,52 +236,39 @@ func (node *RaftNode) AddCommand(ctx context.Context, payload []byte) error {
 	ballotbox := make(chan bool, N)
 	defer close(ballotbox)
 
-	for i, client := range node.clients {
+	var prevLogIndex uint32
+	var prevLogTerm uint32
+	if prevLogEntry != nil {
+		prevLogIndex = prevLogEntry.Index
+		prevLogTerm = prevLogEntry.Term
+	}
+
+	logEntry := raftpb.LogEntry{
+		Term:    newLogEntry.Term,
+		Index:   newLogEntry.Index,
+		Payload: newLogEntry.Payload,
+	}
+
+	msg := raftpb.AppendEntriesRequest{
+		Term:         node.state.CurrentTerm,
+		LeaderId:     node.nodeID,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  prevLogTerm,
+		Entries:      []*raftpb.LogEntry{&logEntry},
+		LeaderCommit: node.state.CommitIndex, // double check
+	}
+
+	for i := range node.clients {
 		// skip yourself
-		if i == int(node.nodeID) {
-			continue
+		if i != int(node.nodeID) {
+			go func(clinetID int) {
+				ctx, cancelfunc := context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancelfunc()
+
+				node.sendAppendEntries(ctx, i, &msg, ballotbox)
+
+			}(i)
 		}
-
-		go func(c *raftpb.RaftClient) {
-			ctx, cancelfunc := context.WithTimeout(ctx, 100*time.Millisecond)
-			defer cancelfunc()
-
-			var prevLogIndex uint32
-			var prevLogTerm uint32
-			if prevLogEntry != nil {
-				prevLogIndex = prevLogEntry.Index
-				prevLogTerm = prevLogEntry.Term
-			}
-
-			logEntry := raftpb.LogEntry{
-				Term:    newLogEntry.Term,
-				Index:   newLogEntry.Index,
-				Payload: newLogEntry.Payload,
-			}
-
-			msg := raftpb.AppendEntriesRequest{
-				Term:         node.state.CurrentTerm,
-				LeaderId:     node.nodeID,
-				PrevLogIndex: prevLogIndex,
-				PrevLogTerm:  prevLogTerm,
-				Entries:      []*raftpb.LogEntry{&logEntry},
-				LeaderCommit: node.state.CommitIndex, // double check
-			}
-
-			reply, err := (*c).AppendEntries(ctx, &msg)
-			if err != nil {
-				node.Logger.Errorf("AppendEntries request failed, %s", err.Error())
-				ballotbox <- false
-			} else {
-				// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-				if reply.Term > node.state.CurrentTerm {
-					node.state.CurrentTerm = reply.Term
-					node.SwitchTo(Follower)
-					return
-				}
-				ballotbox <- reply.Success
-			}
-		}(client)
 	}
 
 	yeas := 1 // voting for herself
@@ -261,13 +279,16 @@ func (node *RaftNode) AddCommand(ctx context.Context, payload []byte) error {
 		if v {
 			yeas++
 		}
-		if yeas >= (N+1)/2 {
-			node.Logger.Debugf("replication succeeded")
-			err := node.sm.Apply(payload)
-			if err != nil {
-				node.Logger.Debugf("failed to apply command, %s", err.Error())
+		if yeas > majority {
+			// need 2 out of 2, need 2 out of 3, 3 out of 4 nodes, etc
+			// log is applied by checkCommittedEntries upon update to matchIndex
+			if err := (*node.sm).Apply(newLogEntry.Payload); err != nil {
+				node.Logger.Errorf("failed to apply log entry %d, %s", newLogEntry.Index, err.Error())
 				return err
+			} else {
+				node.state.LastApplied++
 			}
+			node.Logger.Debugf("replication succeeded, logInx %d", newLogEntry.Index)
 			return nil
 		}
 	}
@@ -314,11 +335,17 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 
 					go func(id int) {
 						node.Logger.Debugf("sending heartbeat to %d", id)
-						node.sendAppendEntries(tx, id, node.prepareLog(ctx, id))
+						node.sendAppendEntries(tx, id, node.prepareLog(ctx, id), nil)
 					}(id)
 				}
 			}
 			heartBeatTimer.Reset(node.config.HeartBeat)
+
+		case s := <-node.signals:
+			switch s {
+			case MatchIndexUpdate:
+				go node.checkCommitIndex()
+			}
 		}
 	}
 }

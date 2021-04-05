@@ -23,7 +23,7 @@ func TestRunCandidate(t *testing.T) {
 
 func TestRequestVoteCandidate(t *testing.T) {
 
-	r := create(t, 3)
+	r := create(t, 3, 2)
 
 	ctx := context.WithValue(context.WithValue(context.Background(), NodeIDKey, 1), AddressKey, netAddr{})
 
