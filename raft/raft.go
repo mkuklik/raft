@@ -18,11 +18,11 @@ import (
 type Signal int
 
 const (
-	MatchIndexUpdate Signal = iota
-	CommitIndexUpdate
-	SwitchToFollower
+	SwitchToFollower Signal = iota
 	SwitchToCandidate
 	SwitchToLeader
+	// MatchIndexUpdate
+	// CommitIndexUpdate
 )
 
 type RaftNode struct {

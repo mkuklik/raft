@@ -84,7 +84,8 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 		} else {
 			node.state.CommitIndex = last.Index
 		}
-		node.signals <- CommitIndexUpdate // trigger applying committed logs to state machine
+		// node.signals <- CommitIndexUpdate // trigger applying committed logs to state machine
+		go node.applyCommittedEntries()
 	}
 
 	node.ResetElectionTimer()
@@ -173,11 +174,11 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 			node.SwitchTo(Candidate)
 			return
 
-		case s := <-node.signals:
-			switch s {
-			case CommitIndexUpdate:
-				go node.applyCommittedEntries()
-			}
+			// case s := <-node.signals:
+			// 	switch s {
+			// 	case CommitIndexUpdate:
+			// 		go node.applyCommittedEntries()
+			// 	}
 		}
 	}
 

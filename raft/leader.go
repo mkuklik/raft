@@ -112,7 +112,8 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 				if req.Entries[len(req.Entries)-1].Index > node.state.MatchIndex[id] {
 					node.state.MatchIndex[id] = req.Entries[len(req.Entries)-1].Index
 					node.state.NextIndex[id] = node.state.MatchIndex[id] + 1
-					node.signals <- MatchIndexUpdate
+					// node.signals <- MatchIndexUpdate
+					go node.updateCommitIndex()
 				}
 				node.lock.Unlock()
 			}
@@ -171,10 +172,10 @@ func (node *RaftNode) sendEmptyHeartBeat(ctx context.Context) {
 	}
 }
 
-// checkCommitIndex checks whether to increase CommitIndex
+// updateCommitIndex checks whether to increase CommitIndex
 //  If there exists an N such that N > commitIndex, a majority
 //  of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
-func (node *RaftNode) checkCommitIndex() {
+func (node *RaftNode) updateCommitIndex() {
 	node.lock.Lock()
 	defer node.lock.Unlock()
 
@@ -341,11 +342,11 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 			}
 			heartBeatTimer.Reset(node.config.HeartBeat)
 
-		case s := <-node.signals:
-			switch s {
-			case MatchIndexUpdate:
-				go node.checkCommitIndex()
-			}
+			// case s := <-node.signals:
+			// 	switch s {
+			// 	case MatchIndexUpdate:
+			// 		go node.checkCommitIndex()
+			// 	}
 		}
 	}
 }

@@ -96,20 +96,20 @@ func TestCheckCommitIndex(t *testing.T) {
 
 		want := uint32(101)
 
-		ctx, cancelfunc := context.WithCancel(context.Background())
+		// ctx, cancelfunc := context.WithCancel(context.Background())
 
-		go func(ctx context.Context) {
-			select {
-			case <-ctx.Done():
-				t.Errorf("didn't received a signal")
-			case s := <-r.signals:
-				if s != CommitIndexUpdate {
-					t.Errorf("wrong signal received, wanted %d, got %d", CommitIndexUpdate, s)
-				}
-			}
-		}(ctx)
+		// go func(ctx context.Context) {
+		// 	select {
+		// 	case <-ctx.Done():
+		// 		t.Errorf("didn't received a signal")
+		// 	case s := <-r.signals:
+		// 		if s != CommitIndexUpdate {
+		// 			t.Errorf("wrong signal received, wanted %d, got %d", CommitIndexUpdate, s)
+		// 		}
+		// 	}
+		// }(ctx)
 
-		r.checkCommitIndex()
+		r.updateCommitIndex()
 
 		got := r.state.CommitIndex
 
@@ -117,7 +117,7 @@ func TestCheckCommitIndex(t *testing.T) {
 			t.Errorf("checking commitIndex failed, wanted %v, got %v", want, got)
 		}
 
-		cancelfunc()
+		// cancelfunc()
 	})
 
 	t.Run("increate CommitIndex on replication 4", func(t *testing.T) {
@@ -134,20 +134,20 @@ func TestCheckCommitIndex(t *testing.T) {
 
 		want := uint32(101)
 
-		ctx, cancelfunc := context.WithCancel(context.Background())
+		// ctx, cancelfunc := context.WithCancel(context.Background())
 
-		go func(ctx context.Context) {
-			select {
-			case <-ctx.Done():
-				t.Errorf("didn't received a signal")
-			case s := <-r.signals:
-				if s != CommitIndexUpdate {
-					t.Errorf("wrong signal received, wanted %d, got %d", CommitIndexUpdate, s)
-				}
-			}
-		}(ctx)
+		// go func(ctx context.Context) {
+		// 	select {
+		// 	case <-ctx.Done():
+		// 		t.Errorf("didn't received a signal")
+		// 	case s := <-r.signals:
+		// 		if s != CommitIndexUpdate {
+		// 			t.Errorf("wrong signal received, wanted %d, got %d", CommitIndexUpdate, s)
+		// 		}
+		// 	}
+		// }(ctx)
 
-		r.checkCommitIndex()
+		r.updateCommitIndex()
 
 		got := r.state.CommitIndex
 
@@ -155,7 +155,7 @@ func TestCheckCommitIndex(t *testing.T) {
 			t.Errorf("checking commitIndex failed, wanted %v, got %v", want, got)
 		}
 
-		cancelfunc()
+		// cancelfunc()
 	})
 
 	t.Run("replication failed, need 3 out of 4", func(t *testing.T) {
@@ -172,18 +172,18 @@ func TestCheckCommitIndex(t *testing.T) {
 
 		want := uint32(100)
 
-		ctx, cancelfunc := context.WithCancel(context.Background())
+		// ctx, cancelfunc := context.WithCancel(context.Background())
 
-		go func(ctx context.Context) {
-			select {
-			case <-ctx.Done():
-				break
-			case s := <-r.signals:
-				t.Errorf("shouldn't receive a signal, got %d", s)
-			}
-		}(ctx)
+		// go func(ctx context.Context) {
+		// 	select {
+		// 	case <-ctx.Done():
+		// 		break
+		// 	case s := <-r.signals:
+		// 		t.Errorf("shouldn't receive a signal, got %d", s)
+		// 	}
+		// }(ctx)
 
-		r.checkCommitIndex()
+		r.updateCommitIndex()
 
 		got := r.state.CommitIndex
 
@@ -191,7 +191,7 @@ func TestCheckCommitIndex(t *testing.T) {
 			t.Errorf("checking commitIndex failed, wanted %v, got %v", want, got)
 		}
 
-		cancelfunc()
+		// cancelfunc()
 	})
 
 }
