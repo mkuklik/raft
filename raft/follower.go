@@ -24,6 +24,7 @@ func (node *RaftNode) AppendEntriesFollower(ctx context.Context, msg *pb.AppendE
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		node.saveState()
 		return &pb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 	}
 
@@ -103,6 +104,7 @@ func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVo
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		node.saveState()
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -116,6 +118,7 @@ func (node *RaftNode) RequestVoteFollower(ctx context.Context, msg *pb.RequestVo
 		msg.LastLogIndex >= node.state.CommitIndex { // ??? Doube check
 		node.Logger.Debugf("voted YES")
 		node.state.VotedFor = int(msg.CandidateId)
+		node.saveState()
 		return &pb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: true}, nil
 	}
 	node.Logger.Debugf("voted NO (3)")

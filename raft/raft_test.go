@@ -36,24 +36,38 @@ func start(t *testing.T, ctx context.Context, nodeID uint32) *RaftNode {
 		"localhost:1235",
 	}
 
-	file, err := ioutil.TempFile("/tmp/", "")
+	// logfile
+	logFile, err := ioutil.TempFile("/tmp/", "*.logfile")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		// file.Close()
-		err := os.Remove(file.Name())
+		err := os.Remove(logFile.Name())
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	})
+
+	// state file
+	stateFile, err := ioutil.TempFile("/tmp/", "*.statefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		// file.Close()
+		err := os.Remove(stateFile.Name())
 		if err != nil {
 			t.Errorf(err.Error())
 		}
 	})
 
 	sm := NewStateMachineMock() // Some state machine
-	r := NewRaftNode(&config, uint32(nodeID), &sm, file)
+	r := NewRaftNode(&config, uint32(nodeID), &sm, logFile, stateFile)
 
 	r.Run(ctx, config.Peers[nodeID])
 
-	return &r
+	return r
 }
 
 func TestReplication(t *testing.T) {

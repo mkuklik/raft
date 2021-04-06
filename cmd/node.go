@@ -37,7 +37,8 @@ func main() {
 	flag.String("db", "pg", "database backend: pg")
 	addr := flag.String("addr", ":1234", "address")
 	flag.String("bootstrap", "", "address to bootstrap cluster")
-	logFile := flag.String("logfile", "", "file where log entries are persisted")
+	logFilePathOpt := flag.String("logfile", "", "file where log entries are persisted")
+	stateFilePathOpt := flag.String("statefile", "", "file where persistant state of raft node")
 	clean := flag.Bool("clean", false, "start clean, i.e. new log file etc.")
 	configFile := flag.String("config", "", "config file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -73,28 +74,48 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 
 	// LogEntry filename
-	filepath := *logFile
-	if *logFile == "" {
-		filepath = fmt.Sprintf("logfile.%d.raft", nodeID)
+	logFilePath := *logFilePathOpt
+	if *logFilePathOpt == "" {
+		logFilePath = fmt.Sprintf("logfile.%d.raft", nodeID)
+	}
+
+	// persistant state filename
+	stateFilePath := *stateFilePathOpt
+	if *stateFilePathOpt == "" {
+		stateFilePath = fmt.Sprintf("state.%d.raft", nodeID)
 	}
 
 	if *clean {
 		// delete log file
-		err := os.Remove(filepath)
+		err := os.Remove(logFilePath)
 		if err != nil {
 			log.Fatalf("failed to clean log files, %s", err.Error())
 		}
+		err = os.Remove(stateFilePath)
+		if err != nil {
+			log.Fatalf("failed to clean state files, %s", err.Error())
+		}
 	}
 
-	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE, 0666)
+	// log file
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		log.Fatalf("can't create log file %s, %e", *logFile, err.Error())
+		log.Fatalf("can't open log file %s, %e", logFilePath, err.Error())
 	}
-	log.Infof("opened logfile %s", filepath)
-	defer file.Close()
+	log.Infof("opened logfile %s", logFilePath)
+	defer logFile.Close()
 
+	// state file
+	stateFile, err := os.OpenFile(stateFilePath, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		log.Fatalf("can't open state file %s, %e", stateFilePath, err.Error())
+	}
+	log.Infof("opened state file %s", stateFilePath)
+	defer stateFile.Close()
+
+	// state machine
 	sm := NewStateM() // Some state machine
-	r := raft.NewRaftNode(&config, uint32(nodeID), &sm, file)
+	r := raft.NewRaftNode(&config, uint32(nodeID), &sm, logFile, stateFile)
 
 	termChan := make(chan os.Signal, 1)
 	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)

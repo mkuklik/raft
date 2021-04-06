@@ -105,6 +105,7 @@ func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *raftpb.Ap
 		node.state.CurrentTerm = msg.Term
 		node.state.VotedFor = -1
 		node.SwitchTo(Follower)
+		node.saveState()
 		return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 	}
 	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????

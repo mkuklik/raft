@@ -128,6 +128,7 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 				// switch to follower
 				node.state.CurrentTerm = reply.Term
 				node.SwitchTo(Follower)
+				node.saveState()
 			} else if reply.Term < node.state.CurrentTerm {
 				// Append failed because other node had lower term than currentTerm.
 				// the node is behind and has to switch to follower to
@@ -356,6 +357,7 @@ func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *raftpb.Appen
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		node.saveState()
 	}
 
 	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
@@ -366,6 +368,7 @@ func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *raftpb.Request
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		node.saveState()
 	}
 
 	return &raftpb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
@@ -376,6 +379,7 @@ func (node *RaftNode) InstallSnapshotLeader(ctx context.Context, msg *raftpb.Ins
 	if msg.Term > node.state.CurrentTerm {
 		node.state.CurrentTerm = msg.Term
 		node.SwitchTo(Follower)
+		node.saveState()
 	}
 
 	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")

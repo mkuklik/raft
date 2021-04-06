@@ -42,6 +42,10 @@ func NewCommandLog(file *os.File) CommandLog {
 
 	data := make([]LogEntry, 0, 100)
 
+	if file == nil {
+		panic("command log file is nil")
+	}
+
 	// load
 	buf := bufio.NewReader(file)
 	// load entries

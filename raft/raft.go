@@ -48,23 +48,25 @@ type RaftNode struct {
 	logLock sync.Mutex
 
 	electionTimeoutTimer *time.Timer
+
+	stateFile *os.File
 }
 
-func NewRaftNode(config *Config, nodeID uint32, sm *StateMachine, file *os.File) RaftNode {
+func NewRaftNode(config *Config, nodeID uint32, sm *StateMachine, commandLogFile *os.File, persistantStateFile *os.File) *RaftNode {
 
 	log.Infof("Raft NodeID %d", nodeID)
 
 	nPeers := len(config.Peers)
 	rand.Seed(time.Now().Unix())
 
-	commandLog := NewCommandLog(file)
+	commandLog := NewCommandLog(commandLogFile)
 
 	revPeers := make(map[string]uint32, nPeers)
 	for i, p := range config.Peers {
 		revPeers[p] = uint32(i)
 	}
 
-	return RaftNode{
+	node := RaftNode{
 		raftpb.UnimplementedRaftServer{},
 		log.NewEntry(log.StandardLogger()),
 		config,
@@ -80,7 +82,12 @@ func NewRaftNode(config *Config, nodeID uint32, sm *StateMachine, file *os.File)
 		sync.Mutex{},
 		sync.Mutex{},
 		time.NewTimer(config.ElectionTimeout),
+		persistantStateFile,
 	}
+
+	node.loadState()
+
+	return &node
 }
 
 func (node *RaftNode) SwitchTo(to NodeStatus) {
