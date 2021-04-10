@@ -176,12 +176,6 @@ func (node *RaftNode) RunFollower(ctx context.Context) {
 			node.Logger.Debugf("Follower timer")
 			node.SwitchTo(Candidate)
 			return
-
-			// case s := <-node.signals:
-			// 	switch s {
-			// 	case CommitIndexUpdate:
-			// 		go node.applyCommittedEntries()
-			// 	}
 		}
 	}
 

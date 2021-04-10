@@ -1,29 +1,27 @@
-# raft
-Raft implementation
+# Raft implementation
+What is the better way to understand Raft Consensus Algorithm than implementing it from scratch.
 
 # TODO
 - test ApplyCommittedEntries
 - test AddCommand to 100% coverage
-- 
 - testing follower AppendEntry w/ 100% coverage
 - testing follower RequestVoteFollower w/ 100% coverage
 - testing leader w/ 100% coverage
-- load logs, persist log on append
-- persist log and persistant state when required
 - refactor states directly to RaftNode
-- snapshot
-- tests ???
+- Snapshots, using the Chandy-Lamport or another algorithm
 - Membership Changes (§6 of the Raft paper and §4 of the dissertation)
 - Log Compaction (§7 of the Raft paper and §5 of the dissertation)
 - Web application to control and interface with a Raft node (using gRPC)
-- Snapshots, using the Chandy-Lamport or another algorithm
+- compare to hashicorp & etcd implementation 
+- compare my implementationt to this blog post: https://eli.thegreenplace.net/2020/implementing-raft-part-0-introduction/
 
 
-DONE:
-- test checkCommittedIndex
+## raft implementations in production
+- https://github.com/hashicorp/raft
+- https://github.com/etcd-io/etcd/blob/master/raft/README.md
 
 
-Sources:
+## Sources
 - https://github.com/etcd-io/etcd/blob/master/raft/README.md
 - https://ieftimov.com/post/understanding-bytes-golang-build-tcp-protocol/
 - https://opensource.com/article/18/5/building-concurrent-tcp-server-go

@@ -99,8 +99,8 @@ func (node *RaftNode) SwitchTo(to NodeStatus) {
 	}
 }
 
-func (node *RaftNode) NewElectionTimer() *time.Timer {
-	tmp := node.config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
+func NewElectionTimer(config *Config) *time.Timer {
+	tmp := config.ElectionTimeout + time.Duration(rand.Intn(150))*time.Millisecond
 	return time.NewTimer(tmp)
 }
 

@@ -306,6 +306,39 @@ func (node *RaftNode) AddCommand(ctx context.Context, payload []byte) error {
 	return fmt.Errorf("failed to process command")
 }
 
+func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+		node.saveState()
+	}
+
+	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
+}
+
+func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+		node.saveState()
+	}
+
+	return &raftpb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
+}
+
+func (node *RaftNode) InstallSnapshotLeader(ctx context.Context, msg *raftpb.InstallSnapshotRequest) (*raftpb.InstallSnapshotReply, error) {
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	if msg.Term > node.state.CurrentTerm {
+		node.state.CurrentTerm = msg.Term
+		node.SwitchTo(Follower)
+		node.saveState()
+	}
+
+	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
+}
+
 func (node *RaftNode) RunLeader(ctx context.Context) {
 	node.Logger.Infof("Starting as Leader")
 
@@ -349,45 +382,6 @@ func (node *RaftNode) RunLeader(ctx context.Context) {
 				}
 			}
 			heartBeatTimer.Reset(node.config.HeartBeat)
-
-			// case s := <-node.signals:
-			// 	switch s {
-			// 	case MatchIndexUpdate:
-			// 		go node.checkCommitIndex()
-			// 	}
 		}
 	}
-}
-
-func (node *RaftNode) AppendEntriesLeader(ctx context.Context, msg *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesReply, error) {
-	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-	if msg.Term > node.state.CurrentTerm {
-		node.state.CurrentTerm = msg.Term
-		node.SwitchTo(Follower)
-		node.saveState()
-	}
-
-	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
-}
-
-func (node *RaftNode) RequestVoteLeader(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
-	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-	if msg.Term > node.state.CurrentTerm {
-		node.state.CurrentTerm = msg.Term
-		node.SwitchTo(Follower)
-		node.saveState()
-	}
-
-	return &raftpb.RequestVoteReply{Term: node.state.CurrentTerm, VoteGranted: false}, nil // ????
-}
-
-func (node *RaftNode) InstallSnapshotLeader(ctx context.Context, msg *raftpb.InstallSnapshotRequest) (*raftpb.InstallSnapshotReply, error) {
-	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-	if msg.Term > node.state.CurrentTerm {
-		node.state.CurrentTerm = msg.Term
-		node.SwitchTo(Follower)
-		node.saveState()
-	}
-
-	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }
