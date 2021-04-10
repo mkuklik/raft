@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -25,15 +26,15 @@ func (sm *StateMachineMock) Apply(event []byte) error {
 }
 
 func (sm StateMachineMock) Snapshot() ([]byte, error) {
-	return nil, fmt.Errorf("Not implemented yet")
+	return nil, fmt.Errorf("not implemented yet")
 }
 
-func start(t *testing.T, ctx context.Context, nodeID uint32) *RaftNode {
+func start(t *testing.T, ctx context.Context, nodeID uint32, startPort int) *RaftNode {
 
 	config := NewConfig()
 	config.Peers = []string{
-		"localhost:1234",
-		"localhost:1235",
+		"localhost:" + strconv.Itoa(startPort),
+		"localhost:" + strconv.Itoa(startPort+1),
 	}
 
 	// logfile
@@ -75,8 +76,8 @@ func TestReplication(t *testing.T) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
 	// create two in
-	r1 := start(t, ctx, 0)
-	r2 := start(t, ctx, 1)
+	r1 := start(t, ctx, 0, 1210)
+	r2 := start(t, ctx, 1, 1210)
 
 	time.Sleep(25 * time.Second)
 

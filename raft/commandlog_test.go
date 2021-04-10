@@ -22,6 +22,7 @@ func TestCommandLog(t *testing.T) {
 	})
 
 	clog := NewCommandLog(file)
+	clogEmpty := NewCommandLog(file)
 
 	payload1 := []byte("111")
 	payload2 := []byte("22222")
@@ -119,6 +120,22 @@ func TestCommandLog(t *testing.T) {
 			t.Errorf("range should return error")
 		}
 
+	})
+
+	t.Run("check range, errors", func(t *testing.T) {
+		_, err := clogEmpty.GetRange(1, 3)
+		if err == nil {
+			t.Error("didn't get index error")
+		}
+
+		_, err = clog.GetRange(3, 1)
+		if err == nil {
+			t.Error("didn't get index error")
+		}
+		_, err = clog.GetRange(0, uint32(len(clog.data)+10))
+		if err == nil {
+			t.Error("didn't get index error")
+		}
 	})
 
 	t.Run("check DropLast", func(t *testing.T) {

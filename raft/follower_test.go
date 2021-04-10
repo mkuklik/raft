@@ -2,72 +2,14 @@ package raft
 
 import (
 	"context"
-	"fmt"
-	"io/ioutil"
-	"os"
-	"strconv"
 	"testing"
 
 	"github.com/mkuklik/raft/raftpb"
 )
 
-type StateM struct{}
-
-func NewStateM() StateMachine {
-	return &StateM{}
-}
-func (sm StateM) Apply(event []byte) error {
-	return fmt.Errorf("Not implemented yet")
-}
-
-func (sm StateM) Snapshot() ([]byte, error) {
-	return nil, fmt.Errorf("Not implemented yet")
-}
-
-func create(t *testing.T, term uint32, nclients int) *RaftNode {
-
-	config := NewConfig()
-	config.Peers = []string{}
-	for i := 0; i < nclients; i++ {
-		config.Peers = append(config.Peers, "localhost:"+strconv.Itoa(1234+i))
-	}
-
-	// logfile
-	logFile, err := ioutil.TempFile("/tmp/", "*.logfile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		// file.Close()
-		err := os.Remove(logFile.Name())
-		if err != nil {
-			t.Errorf(err.Error())
-		}
-	})
-
-	// state file
-	stateFile, err := ioutil.TempFile("/tmp/", "*.statefile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		// file.Close()
-		err := os.Remove(stateFile.Name())
-		if err != nil {
-			t.Errorf(err.Error())
-		}
-	})
-
-	sm := NewStateM() // Some state machine
-	r := NewRaftNode(&config, 0, &sm, logFile, stateFile)
-	r.state.CurrentTerm = term
-
-	return r
-}
-
 func TestFollowerAppendEntry(t *testing.T) {
 
-	r := create(t, 1, 2)
+	r := createRaftTestNode(t, 1, 2, 1230)
 
 	ctx := context.WithValue(context.Background(), NodeIDKey, 1)
 
@@ -225,7 +167,7 @@ func (x netAddr) String() string  { return "some.address" }
 
 func TestRequestVoteFollower(t *testing.T) {
 
-	r := create(t, 3, 2)
+	r := createRaftTestNode(t, 3, 2, 1240)
 
 	ctx := context.WithValue(context.WithValue(context.Background(), NodeIDKey, 1), AddressKey, netAddr{})
 
@@ -324,7 +266,7 @@ func TestApplyCommittedEntries(t *testing.T) {
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	r := start(t, ctx, 0)
+	r := start(t, ctx, 0, 1200)
 	entries := []LogEntry{
 		{
 			Term:    1,

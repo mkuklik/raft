@@ -126,7 +126,7 @@ func (cl *CommandLog) AddEntries(entries *[]LogEntry) error {
 		cl.data = append(cl.data, entry)
 		err := cl.encoder.Encode(entry)
 		if err != nil {
-			log.Fatal("failed to persist log entry,", err)
+			log.Fatalf("failed to persist log entry, %s", err.Error())
 		}
 		index++
 	}
@@ -160,7 +160,7 @@ func (cl *CommandLog) Append(term uint32, payload []byte) (prev *LogEntry, curr 
 		// append entry to file
 		err := cl.encoder.Encode(newLogEntry)
 		if err != nil {
-			log.Fatal("failed to persist log entry,", err)
+			log.Fatalf("failed to persist log entry, %s", err.Error())
 		}
 		err = cl.file.Sync()
 		if err != nil {
@@ -202,7 +202,7 @@ func (cl *CommandLog) Get(inx uint32) *LogEntry {
 		return nil
 	}
 	i := sort.Search(n, func(i int) bool { return cl.data[i].Index >= inx })
-	if i < 0 {
+	if i == n {
 		return nil
 	}
 	return &cl.data[i]
@@ -220,12 +220,12 @@ func (cl *CommandLog) GetRange(start, end uint32) ([]*LogEntry, error) {
 		return nil, errors.New("invalid input, start > end index")
 	}
 
-	iStart := sort.Search(len(cl.data), func(i int) bool { return cl.data[i].Index >= start })
-	if iStart < 0 {
+	iStart := sort.Search(n, func(i int) bool { return cl.data[i].Index >= start })
+	if iStart == n {
 		return nil, errors.New("index out of range")
 	}
-	iEnd := sort.Search(len(cl.data), func(i int) bool { return cl.data[i].Index >= end })
-	if iEnd == len(cl.data) {
+	iEnd := sort.Search(n, func(i int) bool { return cl.data[i].Index >= end })
+	if iEnd == n {
 		return nil, errors.New("index out of range")
 	}
 	out := make([]*LogEntry, iEnd-iStart+1)

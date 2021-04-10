@@ -87,6 +87,13 @@ func (node *RaftNode) sendAppendEntries(ctx context.Context, id int, req *raftpb
 	node.Logger.Debugf("sending AppendEntries to %d, %s", id, req.String())
 
 	client := node.clients[id]
+	if client == nil {
+		node.Logger.Errorf("node %d client is nil", id)
+		if success != nil {
+			success <- false
+		}
+		return
+	}
 
 	reply, err := (*client).AppendEntries(ctx, req)
 

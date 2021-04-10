@@ -21,8 +21,6 @@ const (
 	SwitchToFollower Signal = iota
 	SwitchToCandidate
 	SwitchToLeader
-	// MatchIndexUpdate
-	// CommitIndexUpdate
 )
 
 type RaftNode struct {
@@ -181,12 +179,10 @@ func (node *RaftNode) connectToPeers(ctx context.Context, selfAddr string) {
 
 // runListener run listener to incoming traffic
 func (n *RaftNode) runListener(ctx context.Context, addr string) {
-	// l, err := net.Listen("tcp", addr)
 	var lc net.ListenConfig
 	l, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to listen on %s, %s", addr, err.Error())
-		return
 	}
 	defer l.Close()
 

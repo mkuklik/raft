@@ -8,3 +8,6 @@ grpc:
 coverage:
 	go test ./raft/...  -coverprofile=coverage.out
 	go tool cover -html=coverage.out
+
+test:
+	go test ./raft/... -run ^TestFollowerAppendEntry$

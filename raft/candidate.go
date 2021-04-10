@@ -108,7 +108,7 @@ func (node *RaftNode) AppendEntriesCandidate(ctx context.Context, msg *raftpb.Ap
 		node.saveState()
 		return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: true}, nil
 	}
-	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil // ????
+	return &raftpb.AppendEntriesReply{Term: node.state.CurrentTerm, Success: false}, nil
 }
 
 func (node *RaftNode) RequestVoteCandidate(ctx context.Context, msg *raftpb.RequestVoteRequest) (*raftpb.RequestVoteReply, error) {
